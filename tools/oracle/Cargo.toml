@@ -1,0 +1,22 @@
+# The oracle compares unity-bundle with the rabex fork as a black box on the files of an installed
+# game. It is not part of the library (it needs a git dependency and the game's files), is not
+# published, and is excluded from the package.
+[package]
+name = "oracle"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+unity-bundle = { path = "../.." }
+rabex = { git = "https://github.com/patodois/RustyAssetBundleEXtractor", rev = "56dd8a4d8d5048b6ee7664eadc89d98343c66002", default-features = false, features = ["compression-lz4", "compression-lzma"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+memmap2 = "0.9"
+libc = "0.2"
+
+[profile.release]
+debug = false
+opt-level = 3

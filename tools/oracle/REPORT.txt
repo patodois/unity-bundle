@@ -1,0 +1,374 @@
+Oracle report: unity-bundle against the rabex fork as a black box
+==================================================================
+
+Run on 2026-10-25, on the Steam Windows build of Shin Megami Tensei III Nocturne HD Remaster
+(2,251 bundles in smt3hd_Data/StreamingAssets/PC, 837 in dlc/*, 9 loose serialized files in
+smt3hd_Data), read by memory map, never loading a bundle whole except the main serialized file
+of one (the largest is under 700 MB; the program waits for memory budget before reading one).
+
+  oracle GAME --threads 2 --budget-mb 600        (peak resident size 1.8 GB)
+  oracle GAME --no-values --threads 3            (with a temporary counter on the common strings)
+  oracle GAME --fuzz 400                         (mutated copies of bundles up to 600 KiB)
+  oracle GAME --fuzz 100 --fuzz-max-kb 12288 --fuzz-bundles 200
+
+The oracle is rabex 0.2.1 plus our three fixes, git revision 56dd8a4d8d5048b6ee7664eadc89d98343c66002 of
+github.com/patodois/RustyAssetBundleEXtractor (branch `nocturne`), with the features
+compression-lz4 and compression-lzma. What is compared:
+
+ * the header fields rabex exposes, every block, every directory entry;
+ * the whole decompressed stream of each bundle, in 8 MiB pieces, byte for byte;
+ * four byte ranges of each file and the first byte past its end, mine against theirs;
+ * each file whole, up to 64 MiB;
+ * the main serialized file: the bytes, then the header, type table, every type tree node,
+   objects, externals, script types, reference types, user information;
+ * for every object that has a type tree, a digest of everything `deserialize_any` produces
+   (every visit call, with its value, in order) through both libraries;
+ * the typed values of the 14 classes nocturne-unpack reads (GameObject, Transform, Material,
+   MeshRenderer/SkinnedMeshRenderer, MeshFilter, Mesh, Texture2D, Shader, TextAsset,
+   AnimationClip, Avatar, AnimatorController, Animator, AssetBundle), as a hash of their Debug
+   output, and the streamed .resS range each texture and mesh names;
+ * the class name of every class id met.
+
+--------------------------------------------------------------------------------
+MAIN RUN
+--------------------------------------------------------------------------------
+== oracle report: 3097 files in 100s, peak RSS 1788 MB
+
+-- counts
+blocks: 146779
+bundle:fact_data_offset_16_aligned: 3088
+bundle:fact_data_offset_is_header_plus_metadata_rounded_to_16: 2850
+bundle:fact_data_offset_other: 238
+bundle:fact_every_type_has_a_tree: 3088
+bundle:fact_externals_guid_nonzero: 361
+bundle:fact_externals_kind_nonzero: 0
+bundle:fact_externals_temp_empty_nonempty: 0
+bundle:fact_object_offsets_8_aligned_from_data_offset: 3088
+bundle:fact_objects_disjoint: 3088
+bundle:fact_path_ids_unique: 3088
+bundle:fact_script_types: 2492
+bundle:fact_stripped_types: 0
+bundle:fact_types_script_type_index_not_minus1: 2492
+bundle:fact_types_with_dependencies: 0
+bundle:fact_types_with_script_id: 2492
+bundle:fact_user_information_empty: 3088
+bundle:objects of class 1: 435455
+bundle:objects of class 108: 49273
+bundle:objects of class 111: 15011
+bundle:objects of class 114: 40603
+bundle:objects of class 115: 2492
+bundle:objects of class 1183024399: 1060
+bundle:objects of class 120: 1
+bundle:objects of class 136: 2
+bundle:objects of class 137: 3749
+bundle:objects of class 142: 3088
+bundle:objects of class 1773428102: 4
+bundle:objects of class 198: 181
+bundle:objects of class 199: 181
+bundle:objects of class 20: 1700
+bundle:objects of class 200: 3
+bundle:objects of class 21: 35323
+bundle:objects of class 213: 12690
+bundle:objects of class 222: 19840
+bundle:objects of class 223: 1933
+bundle:objects of class 224: 26662
+bundle:objects of class 225: 130
+bundle:objects of class 23: 119629
+bundle:objects of class 28: 15930
+bundle:objects of class 290: 1
+bundle:objects of class 329: 38
+bundle:objects of class 33: 119657
+bundle:objects of class 4: 408793
+bundle:objects of class 43: 112166
+bundle:objects of class 48: 406
+bundle:objects of class 49: 8568
+bundle:objects of class 58: 2
+bundle:objects of class 61: 1814
+bundle:objects of class 65: 109
+bundle:objects of class 74: 9594
+bundle:objects of class 81: 89
+bundle:objects of class 83: 12552
+bundle:objects of class 84: 13
+bundle:objects of class 89: 4
+bundle:objects of class 90: 3119
+bundle:objects of class 91: 1650
+bundle:objects of class 95: 5177
+bundles_opened_by_both: 3088
+bytes_on_disk: 12098182979
+class_108_digest_identical: 49273
+class_108_objects: 49273
+class_111_digest_identical: 15011
+class_111_objects: 15011
+class_114_digest_identical: 40603
+class_114_objects: 40603
+class_115_digest_identical: 2492
+class_115_objects: 2492
+class_1183024399_digest_identical: 1060
+class_1183024399_objects: 1060
+class_120_digest_identical: 1
+class_120_objects: 1
+class_136_digest_identical: 2
+class_136_objects: 2
+class_137_digest_identical: 3749
+class_137_objects: 3749
+class_142_digest_identical: 3088
+class_142_objects: 3088
+class_1773428102_digest_identical: 4
+class_1773428102_objects: 4
+class_198_digest_identical: 181
+class_198_objects: 181
+class_199_digest_identical: 181
+class_199_objects: 181
+class_1_digest_identical: 435455
+class_1_objects: 435455
+class_200_digest_identical: 3
+class_200_objects: 3
+class_20_digest_identical: 1700
+class_20_objects: 1700
+class_213_digest_identical: 12690
+class_213_objects: 12690
+class_21_digest_identical: 35323
+class_21_objects: 35323
+class_222_digest_identical: 19840
+class_222_objects: 19840
+class_223_digest_identical: 1933
+class_223_objects: 1933
+class_224_digest_identical: 26662
+class_224_objects: 26662
+class_225_digest_identical: 130
+class_225_objects: 130
+class_23_digest_identical: 119629
+class_23_objects: 119629
+class_28_digest_identical: 15930
+class_28_objects: 15930
+class_290_digest_identical: 1
+class_290_objects: 1
+class_329_digest_identical: 38
+class_329_objects: 38
+class_33_digest_identical: 119657
+class_33_objects: 119657
+class_43_digest_identical: 112166
+class_43_objects: 112166
+class_48_digest_identical: 406
+class_48_objects: 406
+class_49_digest_identical: 8568
+class_49_objects: 8568
+class_4_digest_identical: 408793
+class_4_objects: 408793
+class_58_digest_identical: 2
+class_58_objects: 2
+class_61_digest_identical: 1814
+class_61_objects: 1814
+class_65_digest_identical: 109
+class_65_objects: 109
+class_74_digest_identical: 9594
+class_74_objects: 9594
+class_81_digest_identical: 89
+class_81_objects: 89
+class_83_digest_identical: 12552
+class_83_objects: 12552
+class_84_digest_identical: 13
+class_84_objects: 13
+class_89_digest_identical: 4
+class_89_objects: 4
+class_90_digest_identical: 3119
+class_90_objects: 3119
+class_91_digest_identical: 1650
+class_91_objects: 1650
+class_95_digest_identical: 5177
+class_95_objects: 5177
+entries: 4288
+entries_read_whole: 4240
+entry_ranges_compared: 17152
+externals: 1207
+fact_block_info_follows_the_header_fields: 3088
+fact_blocks_lz4hc: 110538
+fact_blocks_stored: 36241
+fact_blocks_with_flags_beyond_compression: 0
+fact_bytes_in_stored_blocks: 4728156918
+fact_entries_contiguous_and_cover_the_stream: 3088
+fact_entries_listed_in_stream_order: 3088
+fact_file_ends_where_the_last_block_ends: 3088
+fact_header_file_size_is_the_entry_size: 3088
+fact_map_align_node0_array0_pair0: 11859
+fact_primitive_aligned_Array: 177976
+fact_primitive_aligned_SInt16: 964
+fact_primitive_aligned_SInt8: 17058
+fact_primitive_aligned_UInt16: 302
+fact_primitive_aligned_UInt8: 12739
+fact_primitive_aligned_bool: 21043
+fact_primitive_aligned_float: 572
+fact_primitive_aligned_int: 1310
+fact_string_align_node0_array1: 97429
+fact_string_align_node1_array1: 783
+fact_struct_align_node0: 306845
+fact_struct_align_node1: 1741
+fact_texture_image_data_len_not_multiple_of_4: 19
+fact_texture_with_image_data_in_object: 178
+fact_typeless_align_node1: 1359
+fact_vector_align_node0_array0: 35092
+fact_vector_align_node0_array1: 75938
+fact_vector_align_node1_array0: 547
+fact_vector_align_node1_array1: 3826
+files_total: 3088
+loose:fact_data_offset_16_aligned: 9
+loose:fact_data_offset_is_header_plus_metadata_rounded_to_16: 4
+loose:fact_data_offset_other: 5
+loose:fact_externals_guid_nonzero: 12
+loose:fact_externals_kind_nonzero: 0
+loose:fact_externals_temp_empty_nonempty: 0
+loose:fact_object_offsets_8_aligned_from_data_offset: 9
+loose:fact_objects_disjoint: 9
+loose:fact_path_ids_unique: 9
+loose:fact_script_types: 80
+loose:fact_stripped_types: 0
+loose:fact_types_script_type_index_not_minus1: 80
+loose:fact_types_with_dependencies: 0
+loose:fact_types_with_script_id: 80
+loose:fact_user_information_empty: 9
+loose_files_total: 9
+loose_parsed_by_both: 9
+object_digests_compared: 1468692
+objects: 1478885
+objects_considered: 1478885
+objects_without_type_tree: 10193
+ref_types: 0
+serialized_files_bytes: 7133634078
+serialized_files_parsed_by_both: 3088
+stream_bytes: 18917494003
+stream_bytes_identical: 5048177264
+stream_compared_bytes: 18917494003
+streams_compared: 15753
+type_tree_nodes: 1872412
+type_trees_identical: 16822
+typed_AnimationClip_compared: 9594
+typed_AnimationClip_identical: 9594
+typed_AnimatorController_compared: 1650
+typed_AnimatorController_identical: 1650
+typed_Animator_compared: 5177
+typed_Animator_identical: 5177
+typed_AssetBundle_compared: 3088
+typed_AssetBundle_identical: 3088
+typed_Avatar_compared: 3119
+typed_Avatar_identical: 3119
+typed_GameObject_compared: 435455
+typed_GameObject_identical: 435455
+typed_Material_compared: 35323
+typed_Material_identical: 35323
+typed_MeshFilter_compared: 119657
+typed_MeshFilter_identical: 119657
+typed_Mesh_compared: 112166
+typed_Mesh_identical: 112166
+typed_Renderer_compared: 123378
+typed_Renderer_identical: 123378
+typed_Shader_compared: 406
+typed_Shader_identical: 406
+typed_TextAsset_compared: 8568
+typed_TextAsset_identical: 8568
+typed_Texture2D_compared: 15930
+typed_Texture2D_identical: 15930
+typed_Transform_compared: 408793
+typed_Transform_identical: 408793
+types: 17001
+
+-- notes (distinct values seen)
+[block compression]
+  flags 0x0
+  flags 0x3
+[entry flags]
+  flags 0x0 (resS)
+  flags 0x0 (resource)
+  flags 0x4 (serialized)
+[header flags]
+  flags 0x43, version 6, player 5.x.x, unity 2018.4.13f1
+  flags 0x43, version 6, player 5.x.x, unity 2019.4.10f1
+  flags 0x43, version 6, player 5.x.x, unity 2019.4.9f1
+[max block size]
+  11188
+  11220
+  11236
+  11280
+  11284
+  11308
+  11468
+  11508
+  11516
+  11540
+  11564
+  11580
+  11612
+  11636
+  11652
+  11660
+  11684
+  11924
+  11932
+  12020
+  12424
+  12912
+  12976
+  13088
+  13092
+  131072
+  13180
+  13232
+  13768
+  13776
+  13824
+  13864
+  26224
+  28116
+  4504
+  48656
+  7288
+  7304
+  7316
+  96148
+[serialized header]
+  format 17 (mine 17), platform 19, type tree true, unity 2018.4.13f1
+  format 21 (mine 21), platform 19, type tree false, unity 2019.4.10f1
+  format 21 (mine 21), platform 19, type tree true, unity 2019.4.10f1
+  format 21 (mine 21), platform 19, type tree true, unity 2019.4.9f1
+[textures with image data of a length that is not a multiple of 4]
+  PC/f015 f014_408: 256x256 format 3 image data 262143 bytes, object size 262248, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [25, 24, 24, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f015 f015_408: 128x128 format 3 image data 65535 bytes, object size 65640, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f015m f014_408: 256x256 format 3 image data 262143 bytes, object size 262248, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [25, 24, 24, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f015m f015_408: 128x128 format 3 image data 65535 bytes, object size 65640, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f040 en_base_09: 512x512 format 3 image data 1048575 bytes, object size 1048684, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [7d, 68, 55, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f050 f014_408: 256x256 format 3 image data 262143 bytes, object size 262248, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [25, 24, 24, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f050 f015_408: 128x128 format 3 image data 65535 bytes, object size 65640, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f051 f014_408: 256x256 format 3 image data 262143 bytes, object size 262248, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [25, 24, 24, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f051 f015_408: 128x128 format 3 image data 65535 bytes, object size 65640, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f060 f014_602: 128x128 format 3 image data 65535 bytes, object size 65640, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [80, 80, 80, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f060 f015_408: 32x32 format 3 image data 4095 bytes, object size 4200, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f615 f014_602.mip8: 2x2 format 3 image data 15 bytes, object size 128, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [41, 3d, 39, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  PC/f615 f014_602.mip9: 1x1 format 3 image data 3 bytes, object size 116, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [41, 3d, 39, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  dlc/10/f060 f014_602: 128x128 format 3 image data 65535 bytes, object size 65640, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [80, 80, 80, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  dlc/10/f060 f015_408: 32x32 format 3 image data 4095 bytes, object size 4200, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  dlc/2/f015m f014_408: 256x256 format 3 image data 262143 bytes, object size 262248, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [25, 24, 24, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  dlc/2/f015m f015_408: 128x128 format 3 image data 65535 bytes, object size 65640, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  dlc/2/f040 en_base_09: 512x512 format 3 image data 1048575 bytes, object size 1048684, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [7d, 68, 55, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+  dlc/9/f040 en_base_09: 512x512 format 3 image data 1048575 bytes, object size 1048684, m_StreamData StreamingInfo { offset: 0, size: 0, path: "" }, last 16 bytes of the object [7d, 68, 55, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+
+-- differences
+none
+
+--------------------------------------------------------------------------------
+COMMON STRINGS IN USE (instrumented run, offsets into the table)
+--------------------------------------------------------------------------------
+COMMON-STRINGS-USED 64 offsets: {0, 5, 19, 49, 55, 60, 76, 81, 86, 106, 117, 155, 161, 172, 208, 222, 241, 245, 263, 277, 299, 349, 374, 387, 427, 490, 519, 526, 543, 548, 564, 581, 596, 616, 633, 659, 688, 702, 718, 741, 753, 767, 778, 785, 795, 800, 814, 821, 827, 840, 847, 874, 884, 894, 907, 921, 928, 934, 981, 988, 997, 1006, 1042, 1051}
+
+--------------------------------------------------------------------------------
+HOSTILE INPUT ON REAL FILES (mutated copies)
+--------------------------------------------------------------------------------
+== hostile-input pass: 250 bundles of at most 600 KiB, 400 mutants each
+mutants run: 100000; still opened as bundles: 61209; main serialized file still parsed: 11952; panics: 0
+serialized-file mutants run: 100000; still parsed: 56096
+largest single allocation: 1115084 bytes (battle_ja mutant 0)
+peak RSS 9 MB
+
+== hostile-input pass: 200 bundles of at most 12288 KiB, 100 mutants each
+mutants run: 20000; still opened as bundles: 12463; main serialized file still parsed: 3882; panics: 0
+serialized-file mutants run: 19600; still parsed: 12466
+largest single allocation: 13394475 bytes (dvl0x123 mutant 2)
+peak RSS 105 MB

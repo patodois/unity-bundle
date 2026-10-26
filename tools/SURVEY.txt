@@ -1,0 +1,35 @@
+base game: Unity 2018.4.13f1, serialized format 17           24
+base game: Unity 2019.4.10f1, serialized format 21           1617
+base game: Unity 2019.4.9f1, serialized format 21            610
+block flags 0x0                                              36241
+block flags 0x3                                              110538
+blocks end at EOF                                            3088
+bundles                                                      3088
+dlc: Unity 2018.4.13f1, serialized format 17                 5
+dlc: Unity 2019.4.10f1, serialized format 21                 720
+dlc: Unity 2019.4.9f1, serialized format 21                  112
+entries                                                      4288
+entries contiguous, cover stream                             3088
+entries named *.(none)                                       3088
+entries named *.resS                                         665
+entries named *.resource                                     535
+entries named CAB-*                                          4288
+entries with flags 0x0                                       1200
+entries with flags 0x4                                       3088
+hash zero                                                    3088
+info fully consumed                                          3088
+serialized entry is first in directory                       3088
+serialized: data_offset == round16(20 + metadata_size)       2850
+serialized: data_offset other                                238
+serialized: file_size == entry size                          3088
+serialized: reserved zero                                    3088
+size field == file size                                      3088
+block flags                    ['0x0', '0x3']
+entry flags                    ['0x0', '0x4']
+entry suffix                   ['(none)', 'resS', 'resource']
+flags                          ['0x43']
+format version                 [6]
+player                         ['5.x.x']
+serialized endianness byte     [0]
+serialized version             [17, 21]
+unity                          ['2018.4.13f1', '2019.4.10f1', '2019.4.9f1']
