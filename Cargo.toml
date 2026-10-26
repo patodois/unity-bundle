@@ -1,0 +1,19 @@
+[package]
+name = "unity-bundle"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Reads Unity 2018.4 and 2019.4 UnityFS asset bundles and serialized files, and deserializes objects through their type trees with serde"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/patodois/unity-bundle"
+keywords = ["unity", "assetbundle", "unityfs", "typetree", "serde"]
+categories = ["game-development", "parser-implementations", "encoding"]
+exclude = ["/tools", "/.github", "/target"]
+
+[dependencies]
+serde = "1"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
