@@ -106,7 +106,7 @@ them and nothing could be checked against them:
   with names that later Unity versions added, and those could be added with a citation, but a 2019.4 tree
   stores such names itself, so an offset there would be a sign of something else.
 
-Minimum supported Rust version: 1.70.
+Minimum supported Rust version: 1.71 (the newest compatible `syn` needs it).
 
 ## Verification
 

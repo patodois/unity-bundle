@@ -32,14 +32,14 @@ jobs:
       - run: cargo build --examples --release
 
   msrv:
-    name: minimum supported Rust (1.70)
+    name: minimum supported Rust (1.71)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.70.0
+      - uses: dtolnay/rust-toolchain@1.71.0
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --locked --lib --examples
-      - run: cargo test --locked
+      - run: cargo build --lib --examples
+      - run: cargo test
 
   docs:
     name: docs

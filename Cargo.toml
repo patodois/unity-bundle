@@ -2,7 +2,7 @@
 name = "unity-bundle"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.71"
 description = "Reads Unity 2018.4 and 2019.4 UnityFS asset bundles and serialized files, and deserializes objects through their type trees with serde"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
