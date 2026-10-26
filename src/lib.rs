@@ -52,3 +52,8 @@ pub use class_id::ClassId;
 pub use error::{Error, Result};
 pub use serialized::SerializedFile;
 pub use typetree::TypeTreeNode;
+
+// The code in the README is compiled by `cargo test`
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
