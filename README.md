@@ -115,7 +115,9 @@ does not do) cannot be seen through values.
 Every size and count read from the data is checked against what the data can hold before anything
 is allocated: a block's decompressed size against LZ4's best ratio for its stored size, an array's
 element count against the bytes that remain, a type tree's node count against the bytes that
-remain. Reads of an object stop at the object's end. Tests (`tests/hostile.rs`) run, with an
+remain. Reads of an object stop at the object's end. What is allocated is proportional to the input, never to a number
+in it: a decompressed block is at most 255 times its stored bytes, and the parsed tables cost at most about 10 times
+the bytes they were read from (a type record of 23 bytes becomes a 240-byte struct). Tests (`tests/hostile.rs`) run, with an
 allocator that records the largest single allocation, 30,000 mutated bundles, 60,000 mutated block
 tables, 60,000 mutated serialized files and 100,000 mutated objects, every truncation and every
 single-byte change of the samples, and a set of decompression, type tree, count and
