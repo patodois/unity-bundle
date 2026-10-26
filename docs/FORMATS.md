@@ -8,7 +8,7 @@ What `unity-bundle` reads, written as facts. Each fact says where it comes from:
   rabex, on every file) and from `tools/survey.py` (`tools/SURVEY.txt`), an independent script in Python with its own
   LZ4 decoder, sharing no code with the crate, that read the header, the block info and the first block of every
   bundle by seeking.
-- **spec**: a public description, cited.
+- **spec**: a public description, cited, or a public table that was compared entry by entry (with its revision).
 - **choice**: a decision of this crate, with its reason.
 
 All numbers in the bundle header and block info are **big-endian**; in a serialized file the first 20
@@ -50,9 +50,10 @@ The low 6 bits of the flags are the compression of the block info (`3` = LZ4HC);
 that the block info holds the directory too, which is the only layout in version 6; bit 7 (`0x80`, block
 info at the end of the file) and every bit above it are clear in all files and are refused.
 
-**choice**: Other readers (AssetStudio, and the rabex fork this crate was compared with) accept zero
-padding to a multiple of 16 before the block info in version 6 bundles of 2019.4. No file of the game
-has any, so it is not read: such a bundle fails with a decompression error rather than being guessed at.
+**choice**: The rabex fork this crate was compared with accepts zero padding to a multiple of 16 before the
+block info in version 6 bundles of 2019.4 (its comment says AssetStudio does the same; AssetStudio at the
+revision named in section 3 aligns only for format version 7 and later, so that was not confirmed). No file of
+the game has any, so it is not read: such a bundle fails with a decompression error rather than being guessed at.
 
 ### 1.2 Block info
 
@@ -221,11 +222,20 @@ level 0 and a level is never more than one deeper than the one before.
 `Quaternionf`, `Rectf`, `RectOffset`, `second`, `set`, `size`, `SInt16`, `SInt64`, `SInt8`, `staticvector`,
 `string`, `TextAsset`, `Texture2D`, `Transform`, `TypelessData`, `UInt16`, `UInt64`, `UInt8`, `unsigned int`,
 `vector`, `Vector2f`, `Vector3f`, `Vector4f`, `Gradient`, `Type*`. Every one decodes to the same string in this
-crate and in rabex. The other 37 entries (for example `SInt32`, `UInt32`, `m_MetaFlag`, `m_IsArray`) are not used
-by any tree of the game, so their text is from the public tables of AssetStudio and UnityPy and was not checked
-against the game; the offsets of the entries after them are checked, because the later ones are used. The table
-stops at `Type*` (offset 1051): names that later Unity versions added at the end of it (`int2_storage`,
-`m_PrefabAsset`, ...) are stored in each tree's own string buffer by 2019.4, so an offset past `Type*` is refused.
+crate and in rabex.
+
+All 101 entries of `src/common_strings.rs` (text and offset) are identical in two separately maintained public
+tables, compared by `tools/check_tables.py` (output in `tools/TABLES.txt`): rabex's `src/commonstring.rs`
+(revision `56dd8a4d8d5048b6ee7664eadc89d98343c66002`, 113 entries, generated there from the AssetRipper TPK
+database) and AssetStudio's `AssetStudio/CommonString.cs` (revision `d158e864b556b5970709c2a52e47944d53aa98a2`,
+109 entries). Of the 101, the game uses 64 (above); the other 37 (for example `SInt32`, `UInt32`, `m_MetaFlag`,
+`m_IsArray`) are confirmed by those two sources only, and the offsets of the later entries, which the game does
+use, confirm that no earlier entry has a wrong length. UnityPy's table was not compared: it is read from a
+binary TPK file (`UnityPy/resources/lzma.tpk`) that is not readable as text in its repository. The table stops
+at `Type*` (offset 1051), though both sources go on (`Hash128` in AssetStudio, `LoadableReference` in rabex):
+the game does not use anything past `Type*`, and stores the later names (`int2_storage`, `m_PrefabAsset`, ...)
+in each tree's own string buffer. An offset past `Type*`, or inside an entry, is an error, `unknown common
+string at offset N`.
 
 *Meta flags.* Only bit 14 (`0x4000`, *align bytes*) is used by this crate: after the value of a node that has
 it, the reader skips to the next multiple of 4, counted from the start of the object's data. **game**:
@@ -274,16 +284,23 @@ files, one per `MonoBehaviour` type; they are listed, not otherwise used by this
 
 ## 3. Class ids
 
-The number Unity gives each kind of object. `src/class_id.rs` has 236 names from Unity's
-[class ID reference](https://docs.unity3d.com/Manual/ClassIDReference.html) (**spec**). **game**: the objects of
-the bundles belong to 41 classes (ids 1, 4, 20, 21, 23, 28, 33, 43, 48, 49, 58, 61, 65, 74, 81, 83, 84, 89, 90,
-91, 95, 108, 111, 114, 115, 120, 136, 137, 142, 198, 199, 200, 213, 222, 223, 224, 225, 290, 329 and the two
-large ids 1183024399, `LookAtConstraint`, and 1773428102, `ParentConstraint`). For each class with a type tree,
-the root of the tree is named like the class (`Texture2D`, `SkinnedMeshRenderer`, ...), except for
-`MonoBehaviour` (114), whose roots carry the C# class name; and rabex's (much larger) table gives the same name
-for every id the game uses. Three names are not confirmed by the game's trees, because the ids appear only
-in the loose files, which have none: 94 `ShaderNameRegistry` (older manuals say `ScriptMapper`), 937362698
-`VFXManager` and 1403656975 `StreamingManager`; these three are rabex's.
+The number Unity gives each kind of object. `src/class_id.rs` has 233 names. Each is in the class id table of
+rabex (revision `56dd8a4d...`, `src/objects/class_id.rs`) under the same number, and 232 of them are also in
+AssetStudio's `ClassIDType` enum (revision `d158e864...`, `AssetStudio/ClassIDType.cs`); `tools/check_tables.py`
+does the comparison (`tools/TABLES.txt`). The one name AssetStudio does not confirm is 94: rabex has
+`ShaderNameRegistry` and AssetStudio, which is older, `ScriptMapper`; the game has an object of that class
+only in a loose file without type trees, so it cannot decide, and rabex's name (which follows the Unity
+version) is used. Three entries of an earlier draft (109, 134, 197) were dropped because the two tables
+disagree on them or only one has them. The names were first written from the author's memory of Unity's class
+ID reference, which was not fetched or read in this work, and kept only after this comparison.
+
+**game**: the objects of the bundles belong to 41 classes (ids 1, 4, 20, 21, 23, 28, 33, 43, 48, 49, 58, 61,
+65, 74, 81, 83, 84, 89, 90, 91, 95, 108, 111, 114, 115, 120, 136, 137, 142, 198, 199, 200, 213, 222, 223, 224,
+225, 290, 329 and the two large ids 1183024399, `LookAtConstraint`, and 1773428102, `ParentConstraint`). For
+each class with a type tree, the root of the tree is named like the class (`Texture2D`, `SkinnedMeshRenderer`,
+...), except for `MonoBehaviour` (114), whose roots carry the C# class name; and rabex's table gives the same name
+for every id the game uses. Ids that appear only in the loose files, which have no type trees, are checked
+against the two tables alone: 94, 937362698 (`VFXManager`) and 1403656975 (`StreamingManager`).
 
 ## 4. Reading an object through its type tree
 
@@ -334,7 +351,8 @@ Found by the oracle or by reading, and why. In the game's files none of them cha
    visitor that stops early) skip the rest, where rabex leaves the stream where it was.
 6. **Sizes.** rabex caps LZ4 blocks at 64 MiB but not by the ratio, and relies on `Vec` growth for counts; this
    crate checks every size as in 1.4 and 2.5.
-7. **Class names.** rabex knows about 900 ids, this crate 236. Both agree on every id of the game.
+7. **Class names.** rabex has 413 names, this crate 233 (those on which rabex and AssetStudio agree, plus 94).
+   Both agree on every id of the game.
 8. **No LZMA, no block-info padding, no other format versions** (1.1, 1.5, 2.1).
 9. **The Unity version** is kept as the string in the file; rabex parses it, and fails to open a file whose
    version it cannot parse.

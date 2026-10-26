@@ -1,9 +1,14 @@
 //! Class ids: the number Unity gives each kind of object, and its name.
 //!
-//! The ids and names are the ones in Unity's class id reference
-//! (<https://docs.unity3d.com/Manual/ClassIDReference.html>), restricted to the classes that exist
-//! in the 2019.4 runtime and in its editor-only companions. `docs/FORMATS.md` lists the ids the
-//! game's bundles use and checks every name against the root type of the bundle's type trees.
+//! Every entry is in the class id table of **rabex** (git revision
+//! `56dd8a4d8d5048b6ee7664eadc89d98343c66002`, `src/objects/class_id.rs`, generated there from the
+//! AssetRipper TPK type tree database) and, with one exception, in the `ClassIDType` enum of
+//! **AssetStudio** (revision `d158e864b556b5970709c2a52e47944d53aa98a2`,
+//! `AssetStudio/ClassIDType.cs`), under the same number and name. The exception is 94, below.
+//! Entries on which the two tables disagree, or that only one of them has, are not here (109, 134
+//! and 197 were dropped for that). `tools/check_tables.py` repeats the comparison. `docs/FORMATS.md`
+//! lists the ids the game's bundles use and checks the names of those against the root types of
+//! the bundles' type trees.
 
 use std::fmt;
 
@@ -92,6 +97,9 @@ static NAMES: &[(i32, &str)] = &[
     (90, "Avatar"),
     (91, "AnimatorController"),
     (93, "RuntimeAnimatorController"),
+    // rabex (which follows the Unity version) says ShaderNameRegistry; AssetStudio, which predates
+    // it, says ScriptMapper. The game has an object of this class only in a loose file without type
+    // trees, so it cannot decide.
     (94, "ShaderNameRegistry"),
     (95, "Animator"),
     (96, "TrailRenderer"),
@@ -99,7 +107,6 @@ static NAMES: &[(i32, &str)] = &[
     (102, "TextMesh"),
     (104, "RenderSettings"),
     (108, "Light"),
-    (109, "CGProgram"),
     (110, "BaseAnimationTrack"),
     (111, "Animation"),
     (114, "MonoBehaviour"),
@@ -121,7 +128,6 @@ static NAMES: &[(i32, &str)] = &[
     (131, "GUITexture"),
     (132, "GUIText"),
     (133, "GUIElement"),
-    (134, "PhysicMaterial"),
     (135, "SphereCollider"),
     (136, "CapsuleCollider"),
     (137, "SkinnedMeshRenderer"),
@@ -172,7 +178,6 @@ static NAMES: &[(i32, &str)] = &[
     (194, "NavMeshObsolete"),
     (195, "NavMeshAgent"),
     (196, "NavMeshSettings"),
-    (197, "LightProbesLegacy"),
     (198, "ParticleSystem"),
     (199, "ParticleSystemRenderer"),
     (200, "ShaderVariantCollection"),

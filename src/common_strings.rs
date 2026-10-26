@@ -2,12 +2,20 @@
 //! buffer (a name with the top bit set in its offset) instead of storing them.
 //!
 //! Offsets are byte positions in [`BUFFER`], whose strings are NUL-terminated and follow one another.
-//! The table ends at `Type*` (offset 1051): that is how far the game's bundles (Unity 2018.4 and
-//! 2019.4) use it. Names that later versions of Unity added (`int2_storage`, `m_PrefabAsset`, ...) are
-//! stored in each tree's own string buffer by 2019.4, and an offset past this table is an error.
-//! `docs/FORMATS.md` says which 64 of the 101 entries the game's bundles use; the others come from
-//! the public descriptions of the table (AssetStudio and UnityPy list the same strings), with offsets
-//! that agree with the game's wherever it uses a later entry.
+//! The 101 entries are the same, at the same offsets, in two separately maintained public tables, which
+//! were compared entry by entry:
+//!
+//! * **rabex**, git revision `56dd8a4d8d5048b6ee7664eadc89d98343c66002`, `src/commonstring.rs`
+//!   (generated there from the AssetRipper TPK type tree database; it has 113 entries);
+//! * **AssetStudio**, revision `d158e864b556b5970709c2a52e47944d53aa98a2`,
+//!   `AssetStudio/CommonString.cs` (hand written; 109 entries).
+//!
+//! The table ends at `Type*` (offset 1051), though both sources go on (up to `Hash128` in
+//! AssetStudio, `LoadableReference` in rabex): the game's bundles (Unity 2018.4 and 2019.4) do not
+//! use anything past `Type*` and store the later names, such as `m_PrefabAsset`, in each tree's own
+//! string buffer. An offset that is not the start of one of these entries is an error ("unknown
+//! common string at offset N"), never a guess. `docs/FORMATS.md` says which 64 of the entries the
+//! game's bundles use.
 
 /// The strings, in order, each followed by a NUL.
 pub(crate) const BUFFER: &str = concat!(

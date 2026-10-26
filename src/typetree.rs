@@ -307,7 +307,8 @@ pub(crate) fn read_blob(cur: &mut Cursor<'_>, format_version: u32) -> Result<Typ
 }
 
 fn read_string(strings: &[u8], offset: u32) -> Result<String> {
-    let (buf, off) = if offset & 0x8000_0000 != 0 {
+    let common = offset & 0x8000_0000 != 0;
+    let (buf, off) = if common {
         (
             common_strings::BUFFER.as_bytes(),
             (offset & 0x7fff_ffff) as usize,
@@ -315,6 +316,10 @@ fn read_string(strings: &[u8], offset: u32) -> Result<String> {
     } else {
         (strings, offset as usize)
     };
+    // A common string is one of the table's entries, so its offset must be where one starts
+    if common && !(off == 0 || (off < buf.len() && buf[off - 1] == 0)) {
+        return Err(invalid(format!("unknown common string at offset {off}")));
+    }
     let rest = buf.get(off..).ok_or_else(|| {
         invalid(format!(
             "type tree string offset {offset:#x} is out of range"
@@ -328,4 +333,53 @@ fn read_string(strings: &[u8], offset: u32) -> Result<String> {
     std::str::from_utf8(&rest[..len])
         .map(str::to_string)
         .map_err(|_| invalid("type tree string is not valid UTF-8"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn one_node_blob(type_offset: u32) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&1i32.to_le_bytes()); // one node
+        b.extend_from_slice(&0i32.to_le_bytes()); // no local strings
+        b.extend_from_slice(&1u16.to_le_bytes()); // version
+        b.push(0); // level
+        b.push(0); // type flags
+        b.extend_from_slice(&type_offset.to_le_bytes());
+        b.extend_from_slice(&(0x8000_0000u32 | 427).to_le_bytes()); // m_Name
+        b.extend_from_slice(&(-1i32).to_le_bytes());
+        b.extend_from_slice(&0i32.to_le_bytes());
+        b.extend_from_slice(&0i32.to_le_bytes());
+        b.extend_from_slice(&0u64.to_le_bytes());
+        b
+    }
+
+    #[test]
+    fn common_strings_are_looked_up_by_offset() {
+        let blob = one_node_blob(0x8000_0000 | 874);
+        let node = read_blob(&mut Cursor::new(&blob), 21).unwrap();
+        assert_eq!(
+            (node.type_name.as_str(), node.name.as_str()),
+            ("Texture2D", "m_Name")
+        );
+        let first = one_node_blob(0x8000_0000);
+        assert_eq!(
+            read_blob(&mut Cursor::new(&first), 21).unwrap().type_name,
+            "AABB"
+        );
+    }
+
+    #[test]
+    fn an_unknown_common_string_is_an_error_naming_the_offset() {
+        // inside an entry, past the end of the table, and far past it
+        for off in [1u32, 876, 1057, 1161, 0x7fff_ffff] {
+            let blob = one_node_blob(0x8000_0000 | off);
+            let e = read_blob(&mut Cursor::new(&blob), 21).unwrap_err();
+            assert_eq!(
+                e.to_string(),
+                format!("invalid data: unknown common string at offset {off}")
+            );
+        }
+    }
 }

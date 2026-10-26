@@ -130,25 +130,29 @@ files, no panic, the largest single allocation 13 MB (decompressing a 12 MB bund
 This crate was written by an AI agent (Claude), at the direction of the owner of
 [patodois](https://github.com/patodois), and what it read to learn the formats is stated here.
 
-- **Read in full or in the parts that matter**: the source of
-  [rabex](https://github.com/jakobhellermann/RustyAssetBundleEXtractor) (Rudolf Kolbe and Jakob
-  Hellermann, MIT OR Apache-2.0), at the fork revision that nocturne-unpack used: the bundle
-  header, block and directory reading, the serialized file reader, the type tree blob reader, the
-  serde deserializer, and the first entries of its common-strings and class-id tables. That is where
-  the layouts were learned and where the deserializer's behaviour, which the oracle compares
-  against, was understood (which node types serve which serde types, the map as a sequence of pairs,
-  the lenient map keys). No code was copied, and the implementation here is organised differently
-  (slices and a cursor instead of `Read + Seek`, one `Kind` per node, a skip function instead of
-  `IgnoredAny` through `deserialize_any`, checked sizes), but it is not a clean-room
+- **Read: rabex.** The source of [rabex](https://github.com/jakobhellermann/RustyAssetBundleEXtractor)
+  (Rudolf Kolbe and Jakob Hellermann, MIT OR Apache-2.0) at the fork revision that nocturne-unpack used,
+  `56dd8a4d8d5048b6ee7664eadc89d98343c66002`: the bundle header, block and directory reading, the serialized
+  file reader, the type tree blob reader, the serde deserializer, `read_ext.rs`, the Unity version parser, and
+  the common-strings and class-id tables. That is where the layouts were learned and where the deserializer's
+  behaviour, which the oracle compares against, was understood (which node types serve which serde types, the
+  map as a sequence of pairs, the lenient map keys). No code was copied, and the implementation here is
+  organised differently (slices and a cursor instead of `Read + Seek`, one `Kind` per node, a skip function
+  instead of `IgnoredAny` through `deserialize_any`, checked sizes), but it is not a clean-room
   implementation: the author had read rabex first.
-- **Known from general knowledge, not consulted in this work**: AssetStudio (MIT) and UnityPy (MIT),
-  from which the common-strings table's contents and the class ids' names are remembered, and which
-  document the same formats. The common-strings offsets were checked against the game's files
-  (below), the class names against the root types of the game's type trees.
-- **Public format descriptions cited**: the
+- **Read: AssetStudio** (MIT), revision `d158e864b556b5970709c2a52e47944d53aa98a2`, only these files, fetched
+  read-only to check this crate's tables and one claim: `CommonString.cs`, `ClassIDType.cs`, the header and
+  directory part of `BundleFile.cs`, and a search of `SerializedFile.cs` for the string table. Nothing was
+  copied; the tables were first written from the author's memory and kept only after the entry-by-entry
+  comparison in `tools/check_tables.py` (`tools/TABLES.txt`).
+- **UnityPy** (MIT): `UnityPy/helpers/Tpk.py` and `TypeTreeNode.py` at revision
+  `417d59522a998fdee9a9c2b29fe35f3063222457` were read only to see where its tables come from (a binary TPK
+  file). Its tables were **not** read or compared, and nothing else of it was consulted.
+- **Not consulted**: Unity's class ID reference and the AssetRipper TPK database (rabex's tables are generated
+  from the latter). Unity's documentation is not used as a source for any fact here.
+- **Public format description**: the
   [LZ4 block format](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md) (the decoder is
-  written from it) and Unity's
-  [class ID reference](https://docs.unity3d.com/Manual/ClassIDReference.html).
+  written from it).
 - **Evidence**: the game's own files. `docs/FORMATS.md` states each fact with the numbers
   from the 3,088 bundles, and a second, independent reading (a Python script written for the
   hexdumps in that file) agreed with this crate's on the example it shows.

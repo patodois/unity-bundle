@@ -403,9 +403,9 @@ fn decode(
 /// Decompresses the block info, which follows the header directly. Returns it and the offset
 /// where the blocks start.
 ///
-/// Other readers (AssetStudio) also accept zero padding to a multiple of 16 before the block info
-/// in 2019.4 bundles. None of the 3,088 bundles of the game has any (see `docs/FORMATS.md`), so
-/// that is not read here: such a bundle fails with a decompression error.
+/// The rabex fork this crate was compared with accepts zero padding to a multiple of 16 before the
+/// block info in 2019.4 bundles. None of the 3,088 bundles of the game has any (see
+/// `docs/FORMATS.md`), so that is not read here: such a bundle fails with a decompression error.
 fn read_block_info(bytes: &[u8], start: usize, header: &Header) -> Result<(Vec<u8>, usize)> {
     let comp = header.block_info_compressed_size as usize;
     let stored = start

@@ -1,0 +1,9 @@
+common strings: this crate 101 entries, rabex 113, AssetStudio 109
+  entries of this crate not identical in rabex: none
+  entries of rabex past this crate's table: 12 (first: (1057, 'int2_storage'))
+  entries of this crate not identical in AssetStudio: none
+  entries of AssetStudio past this crate's table: 8 (first: (1057, 'int2_storage'))
+class ids: this crate 233 names, rabex 413, AssetStudio 363
+  names of this crate not identical in rabex: none
+  names of this crate not identical in AssetStudio: [(94, 'ShaderNameRegistry', 'ScriptMapper')]
+  names confirmed by both: 232 of 233

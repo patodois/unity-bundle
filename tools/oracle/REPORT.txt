@@ -29,10 +29,10 @@ compression-lz4 and compression-lzma. What is compared:
    output, and the streamed .resS range each texture and mesh names;
  * the class name of every class id met.
 
---------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
 MAIN RUN
 --------------------------------------------------------------------------------
-== oracle report: 3097 files in 100s, peak RSS 1788 MB
+== oracle report: 3097 files in 85s, peak RSS 1799 MB
 
 -- counts
 blocks: 146779
@@ -362,13 +362,13 @@ COMMON-STRINGS-USED 64 offsets: {0, 5, 19, 49, 55, 60, 76, 81, 86, 106, 117, 155
 HOSTILE INPUT ON REAL FILES (mutated copies)
 --------------------------------------------------------------------------------
 == hostile-input pass: 250 bundles of at most 600 KiB, 400 mutants each
-mutants run: 100000; still opened as bundles: 61209; main serialized file still parsed: 11952; panics: 0
-serialized-file mutants run: 100000; still parsed: 56096
+mutants run: 100000; still opened as bundles: 61209; main serialized file still parsed: 11707; panics: 0
+serialized-file mutants run: 100000; still parsed: 54119
 largest single allocation: 1115084 bytes (battle_ja mutant 0)
 peak RSS 9 MB
 
 == hostile-input pass: 200 bundles of at most 12288 KiB, 100 mutants each
-mutants run: 20000; still opened as bundles: 12463; main serialized file still parsed: 3882; panics: 0
-serialized-file mutants run: 19600; still parsed: 12466
+mutants run: 20000; still opened as bundles: 12463; main serialized file still parsed: 3839; panics: 0
+serialized-file mutants run: 19600; still parsed: 12119
 largest single allocation: 13394475 bytes (dvl0x123 mutant 2)
-peak RSS 105 MB
+peak RSS 106 MB
