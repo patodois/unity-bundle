@@ -83,16 +83,16 @@ fn parses_both_supported_versions() {
         );
         assert_eq!(f.types[1].script_id, [0; 16]);
         assert_eq!(f.types[1].old_type_hash, [9; 16]);
-        assert_eq!(f.objects.len(), 3);
-        assert_eq!(f.objects[1].class_id, ClassId(1));
-        assert_eq!(f.objects[1].class_id.name(), Some("GameObject"));
+        assert_eq!(f.objects().len(), 3);
+        assert_eq!(f.objects()[1].class_id, ClassId(1));
+        assert_eq!(f.objects()[1].class_id.name(), Some("GameObject"));
         assert_eq!(f.externals.len(), 2);
         assert_eq!(f.externals[0].path, "archive:/CAB-x/CAB-x");
         assert_eq!(f.user_information, "");
         let tree = f.types[1].type_tree.as_ref().unwrap();
-        assert_eq!(tree.type_name, "Named");
-        assert_eq!(tree.children.len(), 3);
-        assert_eq!(tree.children[0].children[0].type_name, "Array");
+        assert_eq!(tree.type_name(), "Named");
+        assert_eq!(tree.children().len(), 3);
+        assert_eq!(tree.children()[0].children()[0].type_name(), "Array");
         assert_eq!(tree.dump().lines().next(), Some("Named Base"));
         assert!(tree
             .dump()
@@ -158,7 +158,7 @@ fn a_file_without_type_trees_cannot_be_read_into_types() {
     );
     let f = SerializedFile::parse(&data).unwrap();
     assert!(!f.has_type_tree);
-    assert_eq!(f.objects.len(), 1);
+    assert_eq!(f.objects().len(), 1);
     assert!(f.types[0].type_tree.is_none());
     assert!(matches!(
         f.read_path_id::<Named>(&data, 1),
@@ -213,13 +213,12 @@ fn every_prefix_of_a_file_is_an_error_not_a_panic() {
 #[test]
 fn an_object_that_lies_outside_the_data_is_an_error() {
     let data = file(FORMAT_VERSION);
-    let mut f = SerializedFile::parse(&data).unwrap();
-    f.objects[0].offset = u64::MAX;
-    let info = f.objects[0];
+    let f = SerializedFile::parse(&data).unwrap();
+    let mut info = f.objects()[0];
+    info.offset = u64::MAX;
     assert!(f.raw(&data, &info).is_err());
-    f.objects[0].offset = data.len() as u64 - 2;
-    f.objects[0].size = 100;
-    let info = f.objects[0];
+    info.offset = data.len() as u64 - 2;
+    info.size = 100;
     assert!(f.raw(&data, &info).is_err());
 }
 

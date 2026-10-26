@@ -1,7 +1,7 @@
 # unity-bundle
 
-Reads the asset bundles and serialized files of **Unity 2018.4 and 2019.4** and turns the objects in
-them into Rust values with [serde](https://serde.rs), through the type trees the files carry.
+Reads the asset bundles and serialized files of **Unity 2018.4.13 and 2019.4.9 to 2019.4.10** as one game ships
+them (see [Scope](#scope)) and turns the objects in them into Rust values with [serde](https://serde.rs), through the type trees the files carry.
 
 - **UnityFS bundles** (container format version 6): the header, the block table, the file directory;
   LZ4 and LZ4HC blocks and stored blocks; whole files or a byte range of a file (only the blocks
@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data = bundle.read_entry(entry)?;
     let file = SerializedFile::parse(&data)?;
 
-    for info in file.objects.iter().filter(|o| o.class_id.0 == 28) {
+    for info in file.objects().iter().filter(|o| o.class_id.0 == 28) {
         let t: Texture2D = file.read(&data, info)?;
         // Only the compression blocks that cover the range are decompressed
         let name = t.m_StreamData.path.rsplit('/').next().unwrap();
@@ -82,8 +82,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | anything else with children | a struct (fields by name, in any order, the rest skipped) or a tuple (children in order) |
 | a field the Rust type names but the tree does not have | `#[serde(default)]`, or an error naming it |
 
-`Option<T>` is always `Some`, enums and byte buffers (`deserialize_bytes`) are refused, and padding
-follows the `align` flag of each node as Unity writes it.
+`Option<T>` is always `Some`, enums and byte buffers (`deserialize_bytes`) are refused, strings are always
+padded to 4 bytes, and the other padding follows the `align` flag of each node as Unity writes it.
+
+Limits of the mapping: fields are skipped before `serde` can see them, so `#[serde(deny_unknown_fields)]` never
+fires; `#[serde(flatten)]` and a `HashMap` read from a struct node fail (a struct node is not a `map` node, only
+a `map` node is); `()` reads nothing; a tuple takes the node's children in order. Each is a test in
+`tests/de.rs`. `ClassId::name()` is `None` for an id that is not in the crate's table, which holds only the
+names found in both rabex's table and AssetStudio's (and 94): an id Unity has can be missing, and so can one a
+newer Unity added.
+
+## Scope
+
+Exactly what the one game it was written for ships: Unity **2018.4.13** and **2019.4.9 to 2019.4.10**, UnityFS
+format 6, serialized file formats 17 and 21. Refused with an error that says why, because no file of the game has
+them and nothing could be checked against them:
+
+- zero padding before the block info (the header's fields are followed directly by it), and the header flag
+  `0x200` (alignment of the block info) or any flag beyond the compression and `0x40`;
+- LZMA and LZHAM blocks, block info at the end of the file, encrypted bundles, other signatures, format 7;
+- serialized formats 18 to 20 and 22 and later, big-endian files, managed references;
+- common-string offsets above 1051 (`Type*`, the last entry the game's trees reach): both public tables go on
+  with names that later Unity versions added, and those could be added with a citation, but a 2019.4 tree
+  stores such names itself, so an offset there would be a sign of something else.
 
 Minimum supported Rust version: 1.70.
 
@@ -115,15 +136,22 @@ does not do) cannot be seen through values.
 Every size and count read from the data is checked against what the data can hold before anything
 is allocated: a block's decompressed size against LZ4's best ratio for its stored size, an array's
 element count against the bytes that remain, a type tree's node count against the bytes that
-remain. Reads of an object stop at the object's end. What is allocated is proportional to the input, never to a number
-in it: a decompressed block is at most 255 times its stored bytes, and the parsed tables cost at most about 10 times
-the bytes they were read from (a type record of 23 bytes becomes a 240-byte struct). Tests (`tests/hostile.rs`) run, with an
-allocator that records the largest single allocation, 30,000 mutated bundles, 60,000 mutated block
-tables, 60,000 mutated serialized files and 100,000 mutated objects, every truncation and every
-single-byte change of the samples, and a set of decompression, type tree, count and
-size bombs; none panics, and none allocates more than 8 MiB at once. The oracle repeats this on mutated
-copies of the game's bundles (`oracle GAME --fuzz N`): 120,000 mutated bundles and 119,600 mutated serialized
-files, no panic, the largest single allocation 13 MB (decompressing a 12 MB bundle).
+remain. Reads of an object stop at the object's end. Two budgets stop sizes that pass those checks from
+multiplying: the strings copied for a type tree (64 bytes per node plus the tree's string buffer, because many
+nodes can name one string) and the values visited while reading an object (16 per byte plus 1,024, because
+elements that take no bytes cost nothing to the data).
+
+What is held in memory is proportional to the input: a decompressed block is at most 255 times its stored bytes
+and the parsed tables cost a constant multiple of the bytes they were read from (a type record of 23 bytes
+becomes a 240-byte struct, about 10 times; a type tree node of 32 bytes becomes about 104 bytes plus at
+most 64 bytes of strings, about 5 times). Tests (`tests/hostile.rs`) run, with an allocator that tracks the
+memory live at once, 30,000 mutated bundles, 60,000 mutated block tables, 60,000 mutated serialized files and
+100,000 mutated objects, every truncation and every single-byte change of the samples, and a set of
+decompression, type tree, count, string and visit bombs; none panics, and none has more than 8 MiB live at once
+while reading these small inputs. The two bombs found by review (a shared string, 763 MiB before the budget; an
+array of arrays of empty structs, 346 MiB) are tests that fail without their budget. The oracle repeats the
+mutations on copies of the game's bundles (`oracle GAME --fuzz N`): 120,000 mutated bundles and 119,600 mutated
+serialized files, no panic, and at most 18.6 MB live at once (reading a mutated 12 MB bundle whole).
 
 ## Provenance
 
@@ -136,10 +164,14 @@ This crate was written by an AI agent (Claude), at the direction of the owner of
   file reader, the type tree blob reader, the serde deserializer, `read_ext.rs`, the Unity version parser, and
   the common-strings and class-id tables. That is where the layouts were learned and where the deserializer's
   behaviour, which the oracle compares against, was understood (which node types serve which serde types, the
-  map as a sequence of pairs, the lenient map keys). No code was copied, and the implementation here is
-  organised differently (slices and a cursor instead of `Read + Seek`, one `Kind` per node, a skip function
-  instead of `IgnoredAny` through `deserialize_any`, checked sizes), but it is not a clean-room
-  implementation: the author had read rabex first.
+  map as a sequence of pairs, the lenient map keys). **The structure follows rabex's.** The `Kind`
+  classification of nodes (`typetree.rs`) follows rabex's `TypeTreeNode::classify` arm for arm and `Kind`
+  mirrors its `TypetreeNodeKind`; the `deserialize_any` dispatch (`de.rs`) has the same arms in the same order,
+  and `KeyDe`, `MapKeyDe` and `ByteSeq` mirror its `FixedKeyDeserializer`, `LenientMapKeyDeserializer` and
+  `ByteSeqDeserializer`. No text or expressions were pasted, and some things are done differently (slices
+  and a cursor instead of `Read + Seek`, a skip function instead of `IgnoredAny` through `deserialize_any`,
+  checked sizes and budgets), but this is not a clean-room implementation: the author had read rabex first and
+  its design is in the result. `NOTICE` credits it.
 - **Read: AssetStudio** (MIT), revision `d158e864b556b5970709c2a52e47944d53aa98a2`, only these files, fetched
   read-only to check this crate's tables and one claim: `CommonString.cs`, `ClassIDType.cs`, the header and
   directory part of `BundleFile.cs`, and a search of `SerializedFile.cs` for the string table. Nothing was

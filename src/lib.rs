@@ -26,7 +26,7 @@
 //! let entry = bundle.main_serialized_entry().expect("a serialized file");
 //! let data = bundle.read_entry(entry)?;
 //! let file = SerializedFile::parse(&data)?;
-//! for info in file.objects.iter().filter(|o| o.class_id.0 == 1) {
+//! for info in file.objects().iter().filter(|o| o.class_id.0 == 1) {
 //!     let go: GameObject = file.read(&data, info)?;
 //!     println!("{}", go.m_Name);
 //! }

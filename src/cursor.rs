@@ -6,11 +6,42 @@ use crate::error::{invalid, Error, Result};
 pub(crate) struct Cursor<'a> {
     data: &'a [u8],
     pos: usize,
+    /// How many more values may be visited (see [`Cursor::spend`])
+    budget: usize,
 }
 
 impl<'a> Cursor<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        Cursor { data, pos: 0 }
+        Cursor {
+            data,
+            pos: 0,
+            budget: usize::MAX,
+        }
+    }
+
+    /// A cursor that allows `budget` calls of [`Cursor::spend`] with 1.
+    pub fn with_budget(data: &'a [u8], budget: usize) -> Self {
+        Cursor {
+            data,
+            pos: 0,
+            budget,
+        }
+    }
+
+    /// Pays for visiting `n` values. Values that take no bytes (empty structs, elements of an
+    /// array of them) cost nothing to the data, so the number of visits is limited separately.
+    pub fn spend(&mut self, n: usize, what: &'static str) -> Result<()> {
+        match self.budget.checked_sub(n) {
+            Some(left) => {
+                self.budget = left;
+                Ok(())
+            }
+            None => Err(Error::TooLarge {
+                what,
+                value: self.data.len() as u64,
+                limit: self.data.len() as u64,
+            }),
+        }
     }
 
     pub fn pos(&self) -> usize {

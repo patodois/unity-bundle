@@ -2,7 +2,7 @@
 //! folder that holds bundles somewhere below it (the one the crate was verified on is Shin Megami
 //! Tensei III Nocturne HD Remaster, whose bundles are in `smt3hd_Data/StreamingAssets/PC`).
 //!
-//! `UNITY_BUNDLE_GAME_DIR=~/Games/smt3hd cargo test --release --test game`
+//! `UNITY_BUNDLE_GAME_DIR=<the game's install dir> cargo test --release --test game`
 
 use std::path::{Path, PathBuf};
 
@@ -64,7 +64,7 @@ fn bundles_open_and_their_class_names_agree_with_the_type_trees() {
             if let (Some(tree), Some(name)) = (&t.type_tree, t.class_id.name()) {
                 if t.class_id.0 != 114 {
                     assert_eq!(
-                        tree.type_name,
+                        tree.type_name(),
                         name,
                         "class {} in {}",
                         t.class_id.0,
@@ -75,9 +75,9 @@ fn bundles_open_and_their_class_names_agree_with_the_type_trees() {
         }
         // Every node of every tree numbers itself in pre-order
         fn check(n: &unity_bundle::TypeTreeNode, next: &mut i32) {
-            assert_eq!(n.index, *next);
+            assert_eq!(n.index(), *next);
             *next += 1;
-            for c in &n.children {
+            for c in n.children() {
                 check(c, next);
             }
         }
@@ -108,7 +108,7 @@ fn every_game_object_of_a_bundle_has_a_name() {
     let data = b.read_entry(b.main_serialized_entry().unwrap()).unwrap();
     let f = SerializedFile::parse(&data).unwrap();
     let mut n = 0;
-    for info in f.objects.iter().filter(|o| o.class_id == ClassId(1)) {
+    for info in f.objects().iter().filter(|o| o.class_id == ClassId(1)) {
         let go: Named = f.read(&data, info).unwrap();
         assert!(!go.m_Name.is_empty() || n > 0);
         n += 1;

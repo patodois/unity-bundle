@@ -1,5 +1,9 @@
 //! Type trees: the description of an object's fields that a serialized file carries, and the
 //! reader of the blob they are stored in.
+//!
+//! Credit: the classification of nodes into kinds (`Kind`, `Kind::classify`) follows the structure of
+//! rabex's `TypeTreeNode::classify` and `TypetreeNodeKind` (Rudolf Kolbe and Jakob Hellermann,
+//! MIT OR Apache-2.0), which the author had read; no text or expressions were pasted. See the README.
 
 use crate::common_strings;
 use crate::cursor::Cursor;
@@ -91,27 +95,19 @@ impl Kind {
 /// One node of a type tree: a field, with its type, and the fields inside it.
 ///
 /// Reading an object walks the tree: a node says what to read and in what order its children
-/// come.
+/// come. The fields are read through accessors, so that a node's children cannot be changed
+/// behind the back of what was worked out from them when it was built.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypeTreeNode {
-    /// The type, e.g. `float`, `string`, `PPtr<Material>`, `vector`.
-    pub type_name: String,
-    /// The name of the field, e.g. `m_Name`.
-    pub name: String,
-    /// Version of the type (`m_Version`).
-    pub version: u16,
-    /// `m_TypeFlags`; bit 0 is set on arrays.
-    pub type_flags: u8,
-    /// Size in bytes of a fixed-size value, `-1` for a variable one.
-    pub byte_size: i32,
-    /// Position of the node in the pre-order walk of the tree.
-    pub index: i32,
-    /// `m_MetaFlag`; see [`ALIGN_BYTES_FLAG`].
-    pub meta_flags: i32,
-    /// Hash of the referenced type, for managed references (zero otherwise).
-    pub ref_type_hash: u64,
-    /// The nodes inside this one, in the order they are stored.
-    pub children: Vec<TypeTreeNode>,
+    pub(crate) type_name: String,
+    pub(crate) name: String,
+    pub(crate) version: u16,
+    pub(crate) type_flags: u8,
+    pub(crate) byte_size: i32,
+    pub(crate) index: i32,
+    pub(crate) meta_flags: i32,
+    pub(crate) ref_type_hash: u64,
+    pub(crate) children: Vec<TypeTreeNode>,
     pub(crate) kind: Kind,
     pub(crate) min_size: usize,
 }
@@ -145,6 +141,51 @@ impl TypeTreeNode {
             kind,
             min_size,
         }
+    }
+
+    /// The type, e.g. `float`, `string`, `PPtr<Material>`, `vector`.
+    pub fn type_name(&self) -> &str {
+        &self.type_name
+    }
+
+    /// The name of the field, e.g. `m_Name`.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Version of the type (`m_Version`).
+    pub fn version(&self) -> u16 {
+        self.version
+    }
+
+    /// `m_TypeFlags`; bit 0 is set on arrays.
+    pub fn type_flags(&self) -> u8 {
+        self.type_flags
+    }
+
+    /// Size in bytes of a fixed-size value, `-1` for a variable one.
+    pub fn byte_size(&self) -> i32 {
+        self.byte_size
+    }
+
+    /// Position of the node in the pre-order walk of the tree.
+    pub fn index(&self) -> i32 {
+        self.index
+    }
+
+    /// `m_MetaFlag`; see [`ALIGN_BYTES_FLAG`].
+    pub fn meta_flags(&self) -> i32 {
+        self.meta_flags
+    }
+
+    /// Hash of the referenced type, for managed references (zero otherwise).
+    pub fn ref_type_hash(&self) -> u64 {
+        self.ref_type_hash
+    }
+
+    /// The nodes inside this one, in the order they are stored.
+    pub fn children(&self) -> &[TypeTreeNode] {
+        &self.children
     }
 
     /// Whether the data is padded to a multiple of 4 after this node.
@@ -212,6 +253,23 @@ pub(crate) fn read_blob(cur: &mut Cursor<'_>, format_version: u32) -> Result<Typ
         meta_flags: i32,
         ref_type_hash: u64,
     }
+    // Many nodes can name the same string, and every node gets its own copy, so the strings
+    // copied for one tree are limited to what a real tree needs with room to spare: 64 bytes for
+    // each node and the size of the tree's own string buffer.
+    let string_budget = node_count.saturating_mul(64).saturating_add(string_size);
+    let mut string_used = 0usize;
+    let mut take_string = |offset: u32| -> Result<String> {
+        let s = locate_string(strings, offset)?;
+        string_used = string_used.saturating_add(s.len());
+        if string_used > string_budget {
+            return Err(Error::TooLarge {
+                what: "type tree string bytes",
+                value: string_used as u64,
+                limit: string_budget as u64,
+            });
+        }
+        Ok(s.to_string())
+    };
     let mut raws: Vec<Raw> = Vec::with_capacity(node_count);
     let mut rec = Cursor::new(nodes);
     for _ in 0..node_count {
@@ -230,8 +288,8 @@ pub(crate) fn read_blob(cur: &mut Cursor<'_>, format_version: u32) -> Result<Typ
         };
         raws.push(Raw {
             level,
-            type_name: read_string(strings, type_off)?,
-            name: read_string(strings, name_off)?,
+            type_name: take_string(type_off)?,
+            name: take_string(name_off)?,
             version,
             type_flags,
             byte_size,
@@ -306,7 +364,8 @@ pub(crate) fn read_blob(cur: &mut Cursor<'_>, format_version: u32) -> Result<Typ
     root.ok_or_else(|| invalid("a type tree with no nodes"))
 }
 
-fn read_string(strings: &[u8], offset: u32) -> Result<String> {
+/// The string a node names, in its tree's buffer or in the common strings table.
+fn locate_string(strings: &[u8], offset: u32) -> Result<&str> {
     let common = offset & 0x8000_0000 != 0;
     let (buf, off) = if common {
         (
@@ -330,9 +389,7 @@ fn read_string(strings: &[u8], offset: u32) -> Result<String> {
             "type tree string at {offset:#x} has no terminating NUL"
         ))
     })?;
-    std::str::from_utf8(&rest[..len])
-        .map(str::to_string)
-        .map_err(|_| invalid("type tree string is not valid UTF-8"))
+    std::str::from_utf8(&rest[..len]).map_err(|_| invalid("type tree string is not valid UTF-8"))
 }
 
 #[cfg(test)]

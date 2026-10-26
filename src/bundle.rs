@@ -55,6 +55,7 @@ impl Compression {
 
 /// The fixed part at the start of a bundle.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Header {
     /// Format version of the container (`6` for Unity 2019.4).
     pub format_version: u32,
@@ -83,6 +84,7 @@ impl Header {
 
 /// One compressed block of data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Block {
     /// Size once decompressed.
     pub uncompressed_size: u32,
@@ -101,6 +103,7 @@ impl Block {
 
 /// One file of the bundle: a serialized file or a raw resource (`.resS`, `.resource`).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Entry {
     /// Name of the file inside the bundle, e.g. `CAB-0123....` or `CAB-0123....resS`.
     pub path: String,
@@ -113,6 +116,16 @@ pub struct Entry {
 }
 
 impl Entry {
+    /// An entry, for reading a range of the stream that no directory entry names.
+    pub fn new(path: impl Into<String>, offset: u64, size: u64, flags: u32) -> Entry {
+        Entry {
+            path: path.into(),
+            offset,
+            size,
+            flags,
+        }
+    }
+
     /// Whether the entry is a serialized file (the objects), not a raw resource.
     pub fn is_serialized(&self) -> bool {
         self.flags & ENTRY_SERIALIZED != 0
@@ -123,7 +136,6 @@ impl Entry {
 ///
 /// Opening reads and checks the header, the block table and the directory. Files are
 /// decompressed on demand, and a request touches only the blocks that cover it.
-#[derive(Debug)]
 pub struct Bundle<T: AsRef<[u8]>> {
     data: T,
     header: Header,
@@ -133,6 +145,18 @@ pub struct Bundle<T: AsRef<[u8]>> {
     data_start: usize,
     /// For each block: where it starts in the compressed data and in the decompressed stream
     block_starts: Vec<(u64, u64)>,
+}
+
+impl<T: AsRef<[u8]>> std::fmt::Debug for Bundle<T> {
+    // Not derived: the data can be a whole memory-mapped file
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Bundle")
+            .field("header", &self.header)
+            .field("blocks", &self.blocks.len())
+            .field("entries", &self.entries)
+            .field("bytes", &self.data.as_ref().len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<T: AsRef<[u8]>> Bundle<T> {

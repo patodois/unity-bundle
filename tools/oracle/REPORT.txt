@@ -29,10 +29,10 @@ compression-lz4 and compression-lzma. What is compared:
    output, and the streamed .resS range each texture and mesh names;
  * the class name of every class id met.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 MAIN RUN
 --------------------------------------------------------------------------------
-== oracle report: 3097 files in 85s, peak RSS 1799 MB
+== oracle report: 3097 files in 84s, peak RSS 1813 MB
 
 -- counts
 blocks: 146779
@@ -359,16 +359,16 @@ COMMON STRINGS IN USE (instrumented run, offsets into the table)
 COMMON-STRINGS-USED 64 offsets: {0, 5, 19, 49, 55, 60, 76, 81, 86, 106, 117, 155, 161, 172, 208, 222, 241, 245, 263, 277, 299, 349, 374, 387, 427, 490, 519, 526, 543, 548, 564, 581, 596, 616, 633, 659, 688, 702, 718, 741, 753, 767, 778, 785, 795, 800, 814, 821, 827, 840, 847, 874, 884, 894, 907, 921, 928, 934, 981, 988, 997, 1006, 1042, 1051}
 
 --------------------------------------------------------------------------------
-HOSTILE INPUT ON REAL FILES (mutated copies)
+HOSTILE INPUT ON REAL FILES (mutated copies; most memory live at once during one mutant)
 --------------------------------------------------------------------------------
 == hostile-input pass: 250 bundles of at most 600 KiB, 400 mutants each
 mutants run: 100000; still opened as bundles: 61209; main serialized file still parsed: 11707; panics: 0
 serialized-file mutants run: 100000; still parsed: 54119
-largest single allocation: 1115084 bytes (battle_ja mutant 0)
-peak RSS 9 MB
+most live memory at once: 1565293 bytes (dvl0x15b mutant 0)
+peak RSS 8 MB
 
 == hostile-input pass: 200 bundles of at most 12288 KiB, 100 mutants each
 mutants run: 20000; still opened as bundles: 12463; main serialized file still parsed: 3839; panics: 0
 serialized-file mutants run: 19600; still parsed: 12119
-largest single allocation: 13394475 bytes (dvl0x123 mutant 2)
-peak RSS 106 MB
+most live memory at once: 18636912 bytes (dvl0x123 mutant 2)
+peak RSS 95 MB

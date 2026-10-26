@@ -124,26 +124,11 @@ fn reads_ranges_across_block_boundaries() {
 fn a_file_outside_the_blocks_is_an_error() {
     let (data, _) = sample();
     let b = Bundle::new(&data[..]).unwrap();
-    let outside = Entry {
-        path: "x".into(),
-        offset: 299_990,
-        size: 100,
-        flags: 0,
-    };
+    let outside = Entry::new("x", 299_990, 100, 0);
     assert!(b.read_entry(&outside).is_err());
-    let huge = Entry {
-        path: "x".into(),
-        offset: u64::MAX - 5,
-        size: 100,
-        flags: 0,
-    };
+    let huge = Entry::new("x", u64::MAX - 5, 100, 0);
     assert!(b.read_entry(&huge).is_err());
-    let empty = Entry {
-        path: "x".into(),
-        offset: 10,
-        size: 0,
-        flags: 0,
-    };
+    let empty = Entry::new("x", 10, 0, 0);
     assert_eq!(b.read_entry(&empty).unwrap(), Vec::<u8>::new());
 }
 
@@ -242,4 +227,15 @@ fn block_size_claims_are_checked_before_anything_is_allocated() {
         matches!(err, Error::Invalid(_) | Error::Decompress(_)),
         "{err}"
     );
+}
+
+#[test]
+fn debug_output_does_not_print_the_data() {
+    let (data, _) = sample();
+    let b = Bundle::new(&data[..]).unwrap();
+    let text = format!("{b:?}");
+    assert!(text.len() < 2000, "{} characters", text.len());
+    assert!(text.contains("CAB-1.resS"));
+    let owned = Bundle::new(data).unwrap();
+    assert!(format!("{owned:?}").len() < 2000);
 }

@@ -1,4 +1,4 @@
-//! Malformed and hostile input: no panics, and allocations bounded by what the input holds.
+//! Malformed and hostile input: no panics, and live memory bounded by what the input holds.
 
 mod common;
 
@@ -13,25 +13,40 @@ use serde::Deserialize;
 use unity_bundle::bundle::Bundle;
 use unity_bundle::serialized::SerializedFile;
 
-/// Remembers the largest single allocation.
+/// Counts the bytes that are allocated and not yet freed, and remembers the most there were.
 struct Tracking;
 
-static LARGEST: AtomicUsize = AtomicUsize::new(0);
+static LIVE: AtomicUsize = AtomicUsize::new(0);
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+fn grow(by: usize) {
+    let now = LIVE.fetch_add(by, Ordering::Relaxed) + by;
+    PEAK.fetch_max(now, Ordering::Relaxed);
+}
+
+fn shrink(by: usize) {
+    LIVE.fetch_sub(by, Ordering::Relaxed);
+}
 
 unsafe impl GlobalAlloc for Tracking {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        LARGEST.fetch_max(layout.size(), Ordering::Relaxed);
+        grow(layout.size());
         System.alloc(layout)
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        LARGEST.fetch_max(layout.size(), Ordering::Relaxed);
+        grow(layout.size());
         System.alloc_zeroed(layout)
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        shrink(layout.size());
         System.dealloc(ptr, layout)
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        LARGEST.fetch_max(new_size, Ordering::Relaxed);
+        if new_size >= layout.size() {
+            grow(new_size - layout.size());
+        } else {
+            shrink(layout.size() - new_size);
+        }
         System.realloc(ptr, layout, new_size)
     }
 }
@@ -39,19 +54,20 @@ unsafe impl GlobalAlloc for Tracking {
 #[global_allocator]
 static ALLOC: Tracking = Tracking;
 
-/// The tests share the allocation counter, so they run one at a time.
+/// The tests share the counters, so they run one at a time.
 static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
-/// The largest allocation, in bytes, that any step may make while reading these small inputs.
+/// The most live memory, in bytes, that any step may add while reading these small inputs.
 const LIMIT: usize = 8 << 20;
 
 fn measure<T>(what: &str, f: impl FnOnce() -> T) -> T {
-    LARGEST.store(0, Ordering::Relaxed);
+    let before = LIVE.load(Ordering::Relaxed);
+    PEAK.store(before, Ordering::Relaxed);
     let r = f();
-    let largest = LARGEST.load(Ordering::Relaxed);
+    let peak = PEAK.load(Ordering::Relaxed).saturating_sub(before);
     assert!(
-        largest <= LIMIT,
-        "{what}: allocated {largest} bytes at once"
+        peak <= LIMIT,
+        "{what}: {peak} bytes were live at once (the limit is {LIMIT})"
     );
     r
 }
@@ -131,7 +147,7 @@ fn exercise_serialized(data: &[u8]) {
     let Ok(f) = SerializedFile::parse(data) else {
         return;
     };
-    for info in f.objects.iter().take(1000) {
+    for info in f.objects().iter().take(1000) {
         let _ = f.raw(data, info);
         let _ = f.read::<Wanted>(data, info);
         let _ = f.read::<IgnoredAny>(data, info);
@@ -497,6 +513,141 @@ fn f_tree() -> unity_bundle::TypeTreeNode {
     let file = sample_file();
     let f = SerializedFile::parse(&file).unwrap();
     f.types[0].type_tree.clone().unwrap()
+}
+
+/// A serialized file whose only type has the given type tree blob, written as it is.
+fn file_with_blob(blob: &[u8]) -> Vec<u8> {
+    let small = prim("int", "x");
+    let file = serialized_file(
+        21,
+        &[TypeSpec {
+            class_id: 1,
+            tree: Some(small.clone()),
+        }],
+        &[],
+        &[],
+        true,
+    );
+    // the blob follows the type's 16-byte hash
+    let at = file.windows(16).position(|w| w == [9; 16]).unwrap() + 16;
+    let old = tree_blob(&small, 21).len();
+    [&file[..at], blob, &file[at + old..]].concat()
+}
+
+#[test]
+fn nodes_that_share_one_long_string_cost_what_the_tree_costs_not_the_string_times_the_nodes() {
+    let _g = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    // 2,001 nodes (a root and 2,000 children) and a 200,000-byte string buffer, every offset 0:
+    // a copy of the string for each type and each name is 800 MB
+    let nodes = 2001usize;
+    let mut blob = W::default();
+    blob.i32(nodes as i32).i32(200_001);
+    for i in 0..nodes {
+        let level = if i == 0 { 0 } else { 1 };
+        blob.u16(1)
+            .u8(level)
+            .u8(0)
+            .u32(0)
+            .u32(0)
+            .i32(-1)
+            .i32(i as i32)
+            .i32(0)
+            .u64(0);
+    }
+    blob.bytes(&vec![b'a'; 200_000]).u8(0);
+    let file = file_with_blob(&blob.0);
+    assert!(file.len() < 300_000);
+    let r = measure("shared string bomb", || SerializedFile::parse(&file));
+    assert!(
+        matches!(
+            r,
+            Err(unity_bundle::Error::TooLarge {
+                what: "type tree string bytes",
+                ..
+            })
+        ),
+        "{r:?}"
+    );
+
+    // the same tree with short strings is fine
+    let mut blob = W::default();
+    blob.i32(nodes as i32).i32(8);
+    for i in 0..nodes {
+        let level = if i == 0 { 0 } else { 1 };
+        blob.u16(1)
+            .u8(level)
+            .u8(0)
+            .u32(0)
+            .u32(4)
+            .i32(-1)
+            .i32(i as i32)
+            .i32(0)
+            .u64(0);
+    }
+    blob.bytes(b"int\0x\0\0\0");
+    let file = file_with_blob(&blob.0);
+    let f = measure("shared short string", || SerializedFile::parse(&file)).unwrap();
+    assert_eq!(
+        f.types[0].type_tree.as_ref().unwrap().children().len(),
+        2000
+    );
+}
+
+fn tree_of(n: &N) -> unity_bundle::TypeTreeNode {
+    let file = serialized_file(
+        21,
+        &[TypeSpec {
+            class_id: 1,
+            tree: Some(n.clone()),
+        }],
+        &[],
+        &[],
+        true,
+    );
+    SerializedFile::parse(&file).unwrap().types[0]
+        .type_tree
+        .clone()
+        .unwrap()
+}
+
+#[test]
+fn arrays_of_nothing_inside_arrays_cannot_multiply_the_work() {
+    let _g = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    // outer: 2,000 elements, each an array of "empty" elements. An empty element takes no bytes, so
+    // each count only has to fit in the bytes that remain: 8,000 bytes ask for about 8 million
+    // elements, which a generic value would hold at 16 bytes each
+    let tree = tree_of(&n(
+        "S",
+        "Base",
+        vec![vector(
+            "outer",
+            n("E", "", vec![vector("inner", n("Nothing", "", vec![]))]),
+        )],
+    ));
+    let outer = 2000u32;
+    let mut w = W::default();
+    w.u32(outer);
+    for k in 0..outer {
+        w.u32(4 * (outer - k - 1)); // as many as the bytes that remain allow
+    }
+    let r = measure("visit bomb", || {
+        unity_bundle::de::from_slice::<serde_json::Value>(&w.0, &tree)
+    });
+    assert!(
+        matches!(
+            r,
+            Err(unity_bundle::Error::TooLarge {
+                what: "values to visit",
+                ..
+            })
+        ),
+        "{:?}",
+        r.map(|_| ())
+    );
+    let r = measure("visit bomb, skipped", || {
+        unity_bundle::de::from_slice::<IgnoredAny>(&w.0, &tree)
+    });
+    assert!(matches!(r, Err(unity_bundle::Error::TooLarge { .. })));
 }
 
 #[test]

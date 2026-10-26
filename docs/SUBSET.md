@@ -19,7 +19,7 @@ UnityCN encryption, no format versions but the two the game ships.
 | `file.m_UnityVersion` (printed with `to_string`) | `file.unity_version` (the string as stored) |
 | `file.m_EnableTypeTree` | `file.has_type_tree` |
 | `file.externals_paths()` | `file.externals[i].path` |
-| `file.objects()` (`m_PathID`, `m_ClassID.0`) | `file.objects` (`path_id`, `class_id.0`) |
+| `file.objects()` (`m_PathID`, `m_ClassID.0`) | `file.objects()` (`path_id`, `class_id.0`) |
 | `file.get_object_info(path_id)` (`m_Offset`, `m_Size`, `m_ClassID`) | `file.object(path_id)` (`offset`, `size`, `class_id`), `file.raw(data, info)` |
 | `file.read::<T>(info, NullTypeTreeProvider, &mut cursor)` (serde, from the type tree stored in the file) | `file.read::<T>(data, info)` (the same, bounded to the object's bytes) |
 | `file.get_typetree_for(info, &NullTypeTreeProvider)` and `TypeTreeNode::dump()` | `file.type_tree(info)` and `TypeTreeNode::dump()` |

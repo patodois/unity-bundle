@@ -17,7 +17,9 @@ use std::fmt;
 pub struct ClassId(pub i32);
 
 impl ClassId {
-    /// The name Unity gives the class, if it is one of the known ids.
+    /// The name Unity gives the class. `None` for an id that is not in this crate's table, which
+    /// holds only the names found in both rabex's table and AssetStudio's (and 94, see the module
+    /// documentation): an id Unity does have can be missing, and so can one a newer Unity added.
     pub fn name(self) -> Option<&'static str> {
         NAMES
             .binary_search_by_key(&self.0, |&(id, _)| id)

@@ -1,5 +1,11 @@
 //! A `serde` deserializer that reads object data through a type tree.
 //!
+//! Credit: the way tree nodes serve `serde` types, the shape of `deserialize_any` (one arm per kind of
+//! node), and the helper deserializers for field names (`KeyDe`), map keys (`MapKeyDe`) and typeless
+//! bytes (`ByteSeq`) follow the structure of rabex's `serde_typetree::de` (`FixedKeyDeserializer`,
+//! `LenientMapKeyDeserializer`, `ByteSeqDeserializer`; Rudolf Kolbe and Jakob Hellermann, MIT OR
+//! Apache-2.0), which the author had read; no text or expressions were pasted. See the README.
+//!
 //! The tree says what comes next, so a Rust type does not have to list every field: a struct
 //! asks for the fields it names, matched by the field names of the tree, and the rest is
 //! skipped. The mapping of tree nodes to `serde` types is documented in `docs/FORMATS.md`:
@@ -22,9 +28,25 @@ use crate::cursor::Cursor;
 use crate::error::{Error, Result};
 use crate::typetree::{Kind, TypeTreeNode};
 
+/// How many values may be visited for each byte of an object, plus a constant. A real object visits
+/// about one value per byte at most; values that take no bytes (an array of empty structs) would
+/// otherwise let a few bytes ask for any number of visits.
+const VISITS_PER_BYTE: usize = 16;
+const VISITS_BASE: usize = 1024;
+
 /// Deserializes an object from its bytes, through its type tree.
+///
+/// Fields are matched by name, so a struct (or a tuple, in the tree's order) can name only the
+/// ones it wants. Limits of the mapping: `#[serde(flatten)]` and a `HashMap` read from a struct
+/// node fail (a struct node is not a `map` node), `#[serde(deny_unknown_fields)]` never fires
+/// (fields the type does not name are skipped before it could see them), `Option` is always
+/// `Some`, `()` reads nothing, and enums are refused.
 pub fn from_slice<T: DeserializeOwned>(bytes: &[u8], tree: &TypeTreeNode) -> Result<T> {
-    let mut rd = Cursor::new(bytes);
+    let budget = bytes
+        .len()
+        .saturating_mul(VISITS_PER_BYTE)
+        .saturating_add(VISITS_BASE);
+    let mut rd = Cursor::with_budget(bytes, budget);
     T::deserialize(De {
         node: tree,
         rd: &mut rd,
@@ -78,19 +100,27 @@ fn read_count(rd: &mut Cursor<'_>, item_min_size: usize, what: &'static str) -> 
     Ok(n)
 }
 
-/// Whether the padding after a string, an array or typeless data is present.
+/// Whether the padding after typeless data is present.
 fn aligns_with_child(node: &TypeTreeNode) -> bool {
     node.aligns() || node.children.first().is_some_and(|c| c.aligns())
 }
 
 /// Advances over a value without producing it.
 fn skip(node: &TypeTreeNode, rd: &mut Cursor<'_>) -> Result<()> {
+    rd.spend(1, "values to visit")?;
     match node.kind {
         Kind::Bool | Kind::U8 | Kind::I8 | Kind::Char => skip_fixed(node, rd, 1),
         Kind::U16 | Kind::I16 => skip_fixed(node, rd, 2),
         Kind::U32 | Kind::I32 | Kind::Float => skip_fixed(node, rd, 4),
         Kind::U64 | Kind::I64 | Kind::Double => skip_fixed(node, rd, 8),
-        Kind::String | Kind::Typeless => {
+        Kind::String => {
+            let n = rd.u32_le(OBJECT)? as usize;
+            rd.bytes(n, OBJECT)?;
+            // A string is always padded
+            rd.align(4);
+            Ok(())
+        }
+        Kind::Typeless => {
             let n = rd.u32_le(OBJECT)? as usize;
             rd.bytes(n, OBJECT)?;
             if aligns_with_child(node) {
@@ -243,9 +273,8 @@ impl<'de, 't, 'b, 'r> de::Deserializer<'de> for De<'t, 'b, 'r> {
         }
         let n = self.rd.u32_le(OBJECT)? as usize;
         let bytes = self.rd.bytes(n, OBJECT)?.to_vec();
-        if aligns_with_child(self.node) {
-            self.rd.align(4);
-        }
+        // A string is always padded
+        self.rd.align(4);
         match String::from_utf8(bytes) {
             Ok(s) => visitor.visit_string(s),
             Err(e) => visitor.visit_byte_buf(e.into_bytes()),
@@ -461,6 +490,7 @@ impl<'de, 't, 'b, 'r> SeqAccess<'de> for &mut ElementAccess<'t, 'b, 'r> {
             return Ok(None);
         }
         self.left -= 1;
+        self.rd.spend(1, "values to visit")?;
         seed.deserialize(De {
             node: self.item,
             rd: &mut *self.rd,
@@ -487,6 +517,7 @@ impl<'de, 't, 'b, 'r> SeqAccess<'de> for &mut TupleAccess<'t, 'b, 'r> {
             return Ok(None);
         };
         self.next += 1;
+        self.rd.spend(1, "values to visit")?;
         seed.deserialize(De {
             node: child,
             rd: &mut *self.rd,
@@ -512,6 +543,7 @@ impl<'de, 't, 'b, 'r> MapAccess<'de> for StructAccess<'t, 'b, 'r> {
         while let Some(child) = self.node.children.get(self.next) {
             let index = self.next;
             self.next += 1;
+            self.rd.spend(1, "values to visit")?;
             let take = match self.wanted {
                 None => true,
                 // The first child of that name is the field; a repeated name is skipped
@@ -578,6 +610,7 @@ impl<'de, 't, 'b, 'r> MapAccess<'de> for &mut PairAccess<'t, 'b, 'r> {
             return Ok(None);
         }
         self.left -= 1;
+        self.rd.spend(1, "values to visit")?;
         seed.deserialize(MapKeyDe {
             node: self.key,
             rd: &mut *self.rd,

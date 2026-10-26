@@ -37,27 +37,42 @@ pub struct StreamingInfo {
 struct Tracking;
 
 static TRACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static LARGEST: AtomicUsize = AtomicUsize::new(0);
+/// Bytes allocated minus bytes freed since tracking was reset (it can dip below zero when memory
+/// that was allocated earlier is freed), and the most that number reached.
+static LIVE: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+static PEAK: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+fn grow(by: usize) {
+    if TRACK.load(Ordering::Relaxed) {
+        let now = LIVE.fetch_add(by as isize, Ordering::Relaxed) + by as isize;
+        PEAK.fetch_max(now, Ordering::Relaxed);
+    }
+}
+
+fn shrink(by: usize) {
+    if TRACK.load(Ordering::Relaxed) {
+        LIVE.fetch_sub(by as isize, Ordering::Relaxed);
+    }
+}
 
 unsafe impl std::alloc::GlobalAlloc for Tracking {
     unsafe fn alloc(&self, l: std::alloc::Layout) -> *mut u8 {
-        if TRACK.load(Ordering::Relaxed) {
-            LARGEST.fetch_max(l.size(), Ordering::Relaxed);
-        }
+        grow(l.size());
         std::alloc::System.alloc(l)
     }
     unsafe fn alloc_zeroed(&self, l: std::alloc::Layout) -> *mut u8 {
-        if TRACK.load(Ordering::Relaxed) {
-            LARGEST.fetch_max(l.size(), Ordering::Relaxed);
-        }
+        grow(l.size());
         std::alloc::System.alloc_zeroed(l)
     }
     unsafe fn dealloc(&self, p: *mut u8, l: std::alloc::Layout) {
+        shrink(l.size());
         std::alloc::System.dealloc(p, l)
     }
     unsafe fn realloc(&self, p: *mut u8, l: std::alloc::Layout, n: usize) -> *mut u8 {
-        if TRACK.load(Ordering::Relaxed) {
-            LARGEST.fetch_max(n, Ordering::Relaxed);
+        if n >= l.size() {
+            grow(n - l.size());
+        } else {
+            shrink(l.size() - n);
         }
         std::alloc::System.realloc(p, l, n)
     }
@@ -610,12 +625,7 @@ fn process_bundle(path: &Path, label: &str, opts: &Options, budget: &Budget) {
         count("fact_blocks_with_flags_beyond_compression", streamed as u64);
     }
     count("stream_bytes", total);
-    let whole_m = unity_bundle::bundle::Entry {
-        path: "<stream>".into(),
-        offset: 0,
-        size: total,
-        flags: 0,
-    };
+    let whole_m = unity_bundle::bundle::Entry::new("<stream>", 0, total, 0);
     let whole_t = rabex::files::unityfile::FileEntry {
         offset: 0,
         size: total as i64,
@@ -824,36 +834,41 @@ fn compare_tree(
     t: &rabex::typetree::TypeTreeNode,
 ) -> bool {
     let mut ok = true;
-    if m.type_name != t.m_Type
-        || m.name != t.m_Name
-        || m.version as i32 != t.m_Version
-        || m.type_flags as i32 != t.m_TypeFlags
-        || m.byte_size != t.m_ByteSize
-        || Some(m.meta_flags) != t.m_MetaFlag
-        || !(Some(m.ref_type_hash) == t.m_RefTypeHash
-            || (format_version < 19 && t.m_RefTypeHash.is_none() && m.ref_type_hash == 0))
-        || m.children.len() != t.children.len()
+    if m.type_name() != t.m_Type
+        || m.name() != t.m_Name
+        || m.version() as i32 != t.m_Version
+        || m.type_flags() as i32 != t.m_TypeFlags
+        || m.byte_size() != t.m_ByteSize
+        || Some(m.meta_flags()) != t.m_MetaFlag
+        || !(Some(m.ref_type_hash()) == t.m_RefTypeHash
+            || (format_version < 19 && t.m_RefTypeHash.is_none() && m.ref_type_hash() == 0))
+        || m.children().len() != t.children.len()
     {
         diff(
             "type tree",
             format!(
                 "{label}: {what}: node `{} {}` vs `{} {}`",
-                m.type_name, m.name, t.m_Type, t.m_Name
+                m.type_name(),
+                m.name(),
+                t.m_Type,
+                t.m_Name
             ),
         );
         return false;
     }
-    if m.index != *expected_index {
+    if m.index() != *expected_index {
         diff(
             "type tree index",
             format!(
                 "{label}: {what}: node `{}` has index {} but is number {} in pre-order",
-                m.name, m.index, expected_index
+                m.name(),
+                m.index(),
+                expected_index
             ),
         );
     }
     *expected_index += 1;
-    for (a, b) in m.children.iter().zip(&t.children) {
+    for (a, b) in m.children().iter().zip(&t.children) {
         if !compare_tree(label, what, format_version, expected_index, a, b) {
             ok = false;
         }
@@ -910,20 +925,20 @@ fn compare_serialized(
     // Types
     count("types", m.types.len() as u64);
     {
-        let ids: std::collections::HashSet<i64> = m.objects.iter().map(|o| o.path_id).collect();
+        let ids: std::collections::HashSet<i64> = m.objects().iter().map(|o| o.path_id).collect();
         scoped_if(
             scope,
-            if ids.len() == m.objects.len() {
+            if ids.len() == m.objects().len() {
                 "fact_path_ids_unique"
             } else {
                 "fact_path_ids_REPEATED"
             },
             1,
         );
-        let mut by_off: Vec<_> = m.objects.iter().collect();
+        let mut by_off: Vec<_> = m.objects().iter().collect();
         by_off.sort_by_key(|o| o.offset);
         let rel_ok = m
-            .objects
+            .objects()
             .iter()
             .all(|o| (o.offset - m.data_offset) % 8 == 0);
         scoped_if(
@@ -1068,19 +1083,20 @@ fn compare_serialized(
             // Facts about the table
             if let Some(x) = &a.type_tree {
                 if let Some(n) = a.class_id.name() {
-                    if n != x.type_name && a.class_id.0 != 114 {
+                    if n != x.type_name() && a.class_id.0 != 114 {
                         note(
                             "class name differs from the root type",
                             format!(
                                 "class {} named {n} but root type is {}",
-                                a.class_id.0, x.type_name
+                                a.class_id.0,
+                                x.type_name()
                             ),
                         );
                     }
                 } else {
                     note(
                         "class id without a name in mine",
-                        format!("{} root {}", a.class_id.0, x.type_name),
+                        format!("{} root {}", a.class_id.0, x.type_name()),
                     );
                 }
             }
@@ -1104,15 +1120,15 @@ fn compare_serialized(
     }
 
     // Objects
-    count("objects", m.objects.len() as u64);
+    count("objects", m.objects().len() as u64);
     let to: Vec<&rabex::files::serializedfile::ObjectInfo> = t.objects().collect();
-    if m.objects.len() != to.len() {
+    if m.objects().len() != to.len() {
         diff(
             "objects",
-            format!("{label}: {} vs {} objects", m.objects.len(), to.len()),
+            format!("{label}: {} vs {} objects", m.objects().len(), to.len()),
         );
     } else {
-        for (a, b) in m.objects.iter().zip(&to) {
+        for (a, b) in m.objects().iter().zip(&to) {
             if a.path_id != b.m_PathID
                 || a.offset as i64 != b.m_Offset
                 || a.size != b.m_Size
@@ -1175,20 +1191,20 @@ fn compare_serialized(
 
 fn tree_facts(n: &unity_bundle::TypeTreeNode) {
     let a = |x: &unity_bundle::TypeTreeNode| x.aligns() as u8;
-    let one_array = n.children.len() == 1 && n.children[0].type_name == "Array";
-    match n.type_name.as_str() {
+    let one_array = n.children().len() == 1 && n.children()[0].type_name() == "Array";
+    match n.type_name() {
         "string" => count(
             &format!(
                 "fact_string_align_node{}_array{}",
                 a(n),
-                n.children.first().map(a).unwrap_or(9)
+                n.children().first().map(a).unwrap_or(9)
             ),
             1,
         ),
         "TypelessData" => count(&format!("fact_typeless_align_node{}", a(n)), 1),
         "map" => {
-            let arr = n.children.first();
-            let pair = arr.and_then(|x| x.children.get(1));
+            let arr = n.children().first();
+            let pair = arr.and_then(|x| x.children().get(1));
             count(
                 &format!(
                     "fact_map_align_node{}_array{}_pair{}",
@@ -1204,30 +1220,30 @@ fn tree_facts(n: &unity_bundle::TypeTreeNode) {
         | "SInt64" | "double" | "unsigned long long" | "long long" | "FileSize" | "Type*" => {
             if a(n) == 1 {
                 count(
-                    &format!("fact_primitive_aligned_{}", n.type_name.replace(' ', "_")),
+                    &format!("fact_primitive_aligned_{}", n.type_name().replace(' ', "_")),
                     1,
                 );
             }
         }
         _ if one_array => {
-            let arr = &n.children[0];
+            let arr = &n.children()[0];
             count(
                 &format!("fact_vector_align_node{}_array{}", a(n), a(arr)),
                 1,
             );
         }
-        _ if !n.children.is_empty() => {
+        _ if !n.children().is_empty() => {
             count(&format!("fact_struct_align_node{}", a(n)), 1);
         }
         _ => {}
     }
-    for c in &n.children {
+    for c in n.children() {
         tree_facts(c);
     }
 }
 
 fn node_count(n: &unity_bundle::TypeTreeNode) -> u64 {
-    1 + n.children.iter().map(node_count).sum::<u64>()
+    1 + n.children().iter().map(node_count).sum::<u64>()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1250,7 +1266,7 @@ fn compare_values(
         return;
     }
     let mut cur_t = Cursor::new(data_t);
-    for info in &sm.objects {
+    for info in sm.objects() {
         let Some(tinfo) = st.get_object_info(info.path_id) else {
             continue;
         };
@@ -1612,7 +1628,7 @@ fn exercise_serialized(data: &[u8]) -> bool {
     let Ok(f) = unity_bundle::SerializedFile::parse(data) else {
         return false;
     };
-    for info in f.objects.iter().take(3000) {
+    for info in f.objects().iter().take(3000) {
         let _ = f.raw(data, info);
         let _ = f.read::<Dig>(data, info);
         match info.class_id.0 {
@@ -1673,7 +1689,8 @@ fn fuzz(game: &Path, per_bundle: usize, max_file: u64, max_bundles: usize) {
                     if let Ok(plain) = b.read_entry(e) {
                         for k in 0..per_bundle {
                             let m = mutate(&mut rng, &plain);
-                            LARGEST.store(0, Ordering::Relaxed);
+                            LIVE.store(0, Ordering::Relaxed);
+                            PEAK.store(0, Ordering::Relaxed);
                             TRACK.store(true, Ordering::Relaxed);
                             let r = std::panic::catch_unwind(|| exercise_serialized(&m));
                             TRACK.store(false, Ordering::Relaxed);
@@ -1688,7 +1705,7 @@ fn fuzz(game: &Path, per_bundle: usize, max_file: u64, max_bundles: usize) {
                                     );
                                 }
                             }
-                            let l = LARGEST.load(Ordering::Relaxed);
+                            let l = PEAK.load(Ordering::Relaxed).max(0) as usize;
                             if l > largest_seen {
                                 largest_seen = l;
                                 worst = format!(
@@ -1703,7 +1720,8 @@ fn fuzz(game: &Path, per_bundle: usize, max_file: u64, max_bundles: usize) {
         }
         for k in 0..per_bundle {
             let m = mutate(&mut rng, &base);
-            LARGEST.store(0, Ordering::Relaxed);
+            LIVE.store(0, Ordering::Relaxed);
+            PEAK.store(0, Ordering::Relaxed);
             TRACK.store(true, Ordering::Relaxed);
             let r = std::panic::catch_unwind(|| exercise(&m));
             TRACK.store(false, Ordering::Relaxed);
@@ -1721,7 +1739,7 @@ fn fuzz(game: &Path, per_bundle: usize, max_file: u64, max_bundles: usize) {
                     );
                 }
             }
-            let l = LARGEST.load(Ordering::Relaxed);
+            let l = PEAK.load(Ordering::Relaxed).max(0) as usize;
             if l > largest_seen {
                 largest_seen = l;
                 worst = format!("{} mutant {k}", p.file_name().unwrap().to_string_lossy());
@@ -1737,7 +1755,7 @@ fn fuzz(game: &Path, per_bundle: usize, max_file: u64, max_bundles: usize) {
     println!("mutants run: {execs}; still opened as bundles: {opened}; main serialized file still parsed: {parsed}; panics: {panics}");
     println!("serialized-file mutants run: {sexecs}; still parsed: {sparsed}");
     println!(
-        "largest single allocation: {} bytes ({})",
+        "most live memory at once: {} bytes ({})",
         largest_seen, worst
     );
 }
@@ -1758,12 +1776,7 @@ fn bench(path: &str) {
         .iter()
         .map(|b| b.uncompressed_size as u64)
         .sum();
-    let ent_m = unity_bundle::bundle::Entry {
-        path: "s".into(),
-        offset: 0,
-        size: total,
-        flags: 0,
-    };
+    let ent_m = unity_bundle::bundle::Entry::new("s", 0, total, 0);
     let ent_t = rabex::files::unityfile::FileEntry {
         offset: 0,
         size: total as i64,
@@ -1779,7 +1792,7 @@ fn bench(path: &str) {
         for _ in 0..20 {
             n += unity_bundle::SerializedFile::parse(&data)
                 .unwrap()
-                .objects
+                .objects()
                 .len();
         }
         let a = t.elapsed();

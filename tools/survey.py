@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""An independent survey of the bundles of an installed game (Nocturne HD by default).
+"""An independent survey of the bundles of an installed game (Nocturne HD).
 
 It shares no code with the crate (it has its own small LZ4 decoder), reads only the header, the
 block info and the first block of every bundle, by seeking, and prints the facts that
-docs/FORMATS.md states about the container. usage: python3 -I tools/survey.py [GAME_DIR]
+docs/FORMATS.md states about the container. usage: python3 -I tools/survey.py GAME_DIR
 """
 import os, struct, sys, collections
 def lz4(src, n):
@@ -30,7 +30,7 @@ def lz4(src, n):
             for _ in range(m): out.append(out[-off])
     assert len(out) == n
     return bytes(out)
-root = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/Games/smt3hd")
+root = os.path.expanduser(sys.argv[1])
 files = []
 for d, _, fs in os.walk(os.path.join(root, "smt3hd_Data/StreamingAssets/PC")):
     files += [os.path.join(d, f) for f in fs]

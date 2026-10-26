@@ -213,6 +213,12 @@ in `src/common_strings.rs`, with each entry's offset.
 **game**: 1,872,412 nodes in 16,822 trees; `index` is the pre-order position in all of them, the root is at
 level 0 and a level is never more than one deeper than the one before.
 
+*String budget.* Every node gets its own copy of its two strings, and many nodes can name the same offset of the
+string buffer, so the strings copied for one tree are limited to 64 bytes per node plus the size of the tree's
+string buffer (`Error::TooLarge`, "type tree string bytes"). Without the limit a 264 KB file of 2,000 nodes
+and a 200,000-byte buffer, every offset 0, asks for 763 MiB; the test `tests/hostile.rs` has that file. The
+game's trees are far below it.
+
 *Common strings.* The game's trees use 64 of the 101 entries of the table (the instrumented run is in
 `REPORT.txt`): `AABB`, `AnimationClip`, `AnimationCurve`, `Array`, `Base`, `BitField`, `bool`, `char`,
 `ColorRGBA`, `data`, `double`, `first`, `float`, `GameObject`, `GUID`, `int`, `map`, `Matrix4x4f`,
@@ -321,13 +327,18 @@ The data of an object is the values of the children of the tree's root, in order
 | any other node | nothing |
 | `ReferencedObject`, `ReferencedObjectData`, `ManagedReferencesRegistry` | not read (an error) |
 
-After a node whose `meta flags` have bit 14, padding to a multiple of 4. A `string` is padded when the `string`
-node or its `Array` child has the bit, a `TypelessData` when the node (or its first child) has it, a `vector`
+After a node whose `meta flags` have bit 14, padding to a multiple of 4. A `string` is always padded, whatever
+its flags say (in the game the flag is on all 98,212 of them, so the oracle cannot tell the two rules apart; Unity,
+AssetStudio and rabex pad strings unconditionally). A `TypelessData` is padded when the node (or its first child)
+has the bit, a `vector`
 or `map` when it or its `Array` child has it.
 
 **choice** (counts bounded by the data): an array's, map's, string's or typeless data's count is refused when it
 exceeds the bytes that remain in the object divided by the least size of an element (at least 1, even for
-types that take no bytes). A tree 255 levels deep (the most a node record can state) is read without
+types that take no bytes). Elements that take no bytes still cost work (an array of arrays of empty structs
+multiplies), so the number of values visited while reading an object is limited too, to 16 per byte of the object
+plus 1,024; a real object visits about one value per byte at most (the oracle reads all 1.47 million objects of
+the game within it), and a bigger demand is `Error::TooLarge` ("values to visit"). A tree 255 levels deep (the most a node record can state) is read without
 recursion beyond its depth.
 
 ## Differences from rabex
@@ -341,8 +352,8 @@ Found by the oracle or by reading, and why. In the game's files none of them cha
    which is all zero, so reading it 1 to 3 bytes early, as rabex does, gives the same values. The two readers
    disagree about where the object's remaining bytes are but not about any value. The unit tests cover the case
    with data in the field after.
-2. **Padding after strings.** rabex always pads; this crate pads when the `string` node or its `Array` child
-   has the flag, which every string of the game does.
+2. **Padding after strings.** The same: both always pad. (An earlier version of this crate padded only when a
+   flag said so; every string of the game has one, and the oracle gave the same result with both rules.)
 3. **Padding after maps.** rabex pads when the `map` or its `pair` has the flag, this crate when the `map` or
    its `Array` does; no map in the game has any of the flags, so this is untested on real data.
 4. **Reads stop at the object's end.** rabex reads from a stream over the whole file, so a value running past

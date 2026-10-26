@@ -580,3 +580,106 @@ fn generic_values_through_deserialize_any() {
         })
     );
 }
+
+/// A `string` node and its `Array` child, neither with the align flag
+fn unflagged_string(name: &'static str) -> N {
+    n(
+        "string",
+        name,
+        vec![n(
+            "Array",
+            "Array",
+            vec![prim("int", "size"), prim("char", "data")],
+        )],
+    )
+}
+
+#[test]
+fn strings_are_padded_even_when_no_node_says_so() {
+    #[derive(Deserialize, Debug)]
+    struct S {
+        a: String,
+        after: i32,
+    }
+    #[derive(Deserialize, Debug)]
+    struct After {
+        after: i32,
+    }
+    let tree = n(
+        "S",
+        "Base",
+        vec![unflagged_string("a"), prim("int", "after")],
+    );
+    let mut w = W::default();
+    w.string("ab").i32(7); // 4 + 2 bytes, 2 of padding
+    let s: S = read(&tree, &w.0).unwrap();
+    assert_eq!((s.a.as_str(), s.after), ("ab", 7));
+    // and when the string is skipped
+    assert_eq!(read::<After>(&tree, &w.0).unwrap().after, 7);
+}
+
+#[test]
+fn what_serde_features_do_with_type_trees() {
+    use std::collections::HashMap;
+    let tree = n("S", "Base", vec![prim("int", "a"), prim("int", "b")]);
+    let data = [1, 0, 0, 0, 2, 0, 0, 0];
+
+    // flatten and a map read from a struct node ask for a map; a struct node is not a `map` node
+    #[derive(Deserialize, Debug)]
+    #[allow(dead_code)]
+    struct Flat {
+        #[serde(flatten)]
+        rest: HashMap<String, i32>,
+    }
+    assert!(read::<Flat>(&tree, &data).is_err());
+    assert!(read::<HashMap<String, i32>>(&tree, &data).is_err());
+
+    // fields the type does not name are skipped before serde could object to them
+    #[derive(Deserialize, Debug)]
+    #[serde(deny_unknown_fields)]
+    struct Strict {
+        a: i32,
+    }
+    assert_eq!(read::<Strict>(&tree, &data).unwrap().a, 1);
+
+    // `()` reads nothing, and an Option is always Some
+    assert!(read::<()>(&tree, &data).is_ok());
+    assert_eq!(
+        read::<Option<(i32, i32)>>(&tree, &data).unwrap(),
+        Some((1, 2))
+    );
+}
+
+#[test]
+fn a_tree_cannot_ask_for_more_visits_than_the_object_is_long() {
+    // each of the 40 bytes can stand for a handful of values, not for millions
+    #[derive(Deserialize, Debug)]
+    #[allow(dead_code)]
+    struct S {
+        v: Vec<Vec<IgnoredAny>>,
+    }
+    let tree = n(
+        "S",
+        "Base",
+        vec![vector("v", vector("", n("Nothing", "", vec![])))],
+    );
+    let mut w = W::default();
+    w.u32(8);
+    for k in 0..8u32 {
+        w.u32(4 * (8 - k - 1));
+    }
+    assert!(read::<S>(&tree, &w.0).is_ok());
+    // 10,000 outer elements with an inner count each of everything that remains
+    let mut w = W::default();
+    w.u32(10_000);
+    for k in 0..10_000u32 {
+        w.u32(4 * (10_000 - k - 1));
+    }
+    assert!(matches!(
+        read::<S>(&tree, &w.0),
+        Err(Error::TooLarge {
+            what: "values to visit",
+            ..
+        })
+    ));
+}

@@ -25,6 +25,7 @@ pub const FORMAT_VERSION_2018_4: u32 = 17;
 /// An entry of the type table: one class (or, for scripts, one script) with the type tree its
 /// objects are laid out by.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SerializedType {
     /// The class id of the objects of this type.
     pub class_id: ClassId,
@@ -46,6 +47,7 @@ pub struct SerializedType {
 
 /// Where an object is and how it is laid out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ObjectInfo {
     /// The id of the object inside the file.
     pub path_id: i64,
@@ -61,6 +63,7 @@ pub struct ObjectInfo {
 
 /// A file this one points into (`m_FileID` 1 is the first, 0 is the file itself).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct External {
     /// An always-empty string that precedes the GUID.
     pub temp_empty: String,
@@ -74,6 +77,7 @@ pub struct External {
 
 /// The place in the file of a script (`MonoScript`) that a managed type refers to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ScriptType {
     /// File index like a `PPtr`'s `m_FileID`.
     pub file_index: i32,
@@ -101,8 +105,7 @@ pub struct SerializedFile {
     pub has_type_tree: bool,
     /// The type table.
     pub types: Vec<SerializedType>,
-    /// The objects, in file order.
-    pub objects: Vec<ObjectInfo>,
+    objects: Vec<ObjectInfo>,
     /// The scripts that managed types refer to.
     pub script_types: Vec<ScriptType>,
     /// The files the objects point into.
@@ -244,6 +247,11 @@ impl SerializedFile {
             user_information,
             lookup,
         })
+    }
+
+    /// The objects, in file order.
+    pub fn objects(&self) -> &[ObjectInfo] {
+        &self.objects
     }
 
     /// The object with this path id.

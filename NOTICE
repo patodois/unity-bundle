@@ -1,0 +1,12 @@
+unity-bundle
+Copyright (c) 2026 patodois, MIT OR Apache-2.0 (see LICENSE-MIT and LICENSE-APACHE).
+
+This crate was written after reading the source of rabex
+(https://github.com/jakobhellermann/RustyAssetBundleEXtractor, Copyright Rudolf Kolbe and Jakob
+Hellermann, MIT OR Apache-2.0), at revision 56dd8a4d8d5048b6ee7664eadc89d98343c66002 of the
+patodois fork. The classification of type tree nodes into kinds (src/typetree.rs), the shape of
+the serde deserializer (src/de.rs: its dispatch over kinds, its field-name, map-key and typeless-byte
+helper deserializers) and the behaviour that the deserializer was checked to share follow rabex's
+structure. No text or expressions were pasted. The tables in src/common_strings.rs and
+src/class_id.rs were compared with rabex's and with AssetStudio's (MIT, Perfare). README.md,
+"Provenance", states exactly what was read.

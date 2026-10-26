@@ -105,14 +105,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         f.has_type_tree,
         f.data_offset,
         f.types.len(),
-        f.objects.len(),
+        f.objects().len(),
         f.externals.len()
     );
     for (i, e) in f.externals.iter().enumerate() {
         println!("  external {}: {}", i + 1, e.path);
     }
     let mut per_class: BTreeMap<i32, usize> = BTreeMap::new();
-    for o in &f.objects {
+    for o in f.objects() {
         *per_class.entry(o.class_id.0).or_default() += 1;
     }
     for (id, n) in per_class {
