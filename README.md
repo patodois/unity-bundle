@@ -22,7 +22,8 @@ bundles, no other format versions (they are refused with `Error::Unsupported` an
 files, no managed references. It was written for
 [nocturne-unpack](https://github.com/patodois/nocturne-unpack), which reads Shin Megami Tensei III
 Nocturne HD Remaster, and checked on every bundle of that game (see [Verification](#verification)).
-The formats, with the evidence from those files, are in [docs/FORMATS.md](docs/FORMATS.md).
+The formats, with the evidence from those files, are in [docs/FORMATS.md](docs/FORMATS.md), and what
+it took over from rabex, call by call, in [docs/SUBSET.md](docs/SUBSET.md).
 
 ```rust,no_run
 use serde::Deserialize;
