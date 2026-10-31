@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/patodois/unity-bundle"
 keywords = ["unity", "assetbundle", "unityfs", "typetree", "serde"]
 categories = ["game-development", "parser-implementations", "encoding"]
-exclude = ["/tools", "/.github", "/target"]
+exclude = ["/tools", "/.github", "/target", "/fuzz"]
 
 [dependencies]
 serde = "1"

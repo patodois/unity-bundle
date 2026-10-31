@@ -1,0 +1,58 @@
+[package]
+name = "unity-bundle-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Not part of the crate or of its CI: needs a nightly toolchain and `cargo install cargo-fuzz`.
+# Run with `cargo +nightly fuzz run <target>` from the repository root. See fuzz/README.md.
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+unity-bundle = { path = ".." }
+
+# Keeps this crate out of any workspace of the parent
+[workspace]
+
+[[bin]]
+name = "gen_seeds"
+path = "src/bin/gen_seeds.rs"
+
+[[bin]]
+name = "bundle_open"
+path = "fuzz_targets/bundle_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bundle_info"
+path = "fuzz_targets/bundle_info.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "serialized_parse"
+path = "fuzz_targets/serialized_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "serialized_tree"
+path = "fuzz_targets/serialized_tree.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "de_tree"
+path = "fuzz_targets/de_tree.rs"
+test = false
+doc = false
+bench = false
