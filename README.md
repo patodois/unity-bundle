@@ -1,7 +1,6 @@
 # unity-bundle
 
-Reads the asset bundles and serialized files of **Unity 2018.4.13 and 2019.4.9 to 2019.4.10** as one game ships
-them (see [Scope](#scope)) and turns the objects in them into Rust values with [serde](https://serde.rs), through the type trees the files carry.
+unity-bundle reads **Unity 2018.4.13 and 2019.4.9 to 2019.4.10** asset bundles and serialized files for Rust developers, turning type-tree objects into [serde](https://serde.rs) values within the checked [scope](#scope).
 
 - **UnityFS bundles** (container format version 6): the header, the block table, the file directory;
   LZ4 and LZ4HC blocks and stored blocks; whole files or a byte range of a file (only the blocks
@@ -155,8 +154,9 @@ serialized files, no panic, and at most 18.6 MB live at once (reading a mutated 
 
 ## Provenance
 
-This crate was written by an AI agent (Claude), at the direction of the owner of
-[patodois](https://github.com/patodois), and what it read to learn the formats is stated here.
+The code was written with AI coding agents (Anthropic's Claude and OpenAI's GPT models) under the maintainer's direction.
+AI-assisted contributions are welcome when their use is disclosed and the changes are reviewed.
+The format sources and technical provenance are stated below.
 
 - **Read: rabex.** The source of [rabex](https://github.com/jakobhellermann/RustyAssetBundleEXtractor)
   (Rudolf Kolbe and Jakob Hellermann, MIT OR Apache-2.0) at the fork revision that nocturne-unpack used,
