@@ -379,7 +379,9 @@ impl<'de, 't, 'b, 'r> de::Deserializer<'de> for De<'t, 'b, 'r> {
             rd: &mut *self.rd,
             left: n,
         };
-        let r = visitor.visit_map(&mut access);
+        // When the visitor fails, its error is the one to report: the reader stands somewhere
+        // inside an entry, and skipping from there would fail with an error about something else
+        let r = visitor.visit_map(&mut access)?;
         // Entries the visitor left unread are skipped, so the data after the map stays in step
         let left = access.left;
         for _ in 0..left {
@@ -389,7 +391,7 @@ impl<'de, 't, 'b, 'r> de::Deserializer<'de> for De<'t, 'b, 'r> {
         if self.node.aligns() || array.aligns() || pair.aligns() {
             self.rd.align(4);
         }
-        r
+        Ok(r)
     }
 
     fn deserialize_struct<V: Visitor<'de>>(

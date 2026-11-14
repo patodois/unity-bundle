@@ -287,6 +287,30 @@ fn maps_as_sequences_of_pairs_and_as_maps() {
 }
 
 #[test]
+fn a_map_visitor_that_fails_reports_its_own_error() {
+    // A map of string to float read as a map of string to i32: the first value is refused. What
+    // is left of the map (from inside the first entry) must not be skipped, since the error of
+    // that skip would replace the one that says what is wrong.
+    let tree = map("m", string(""), prim("float", ""));
+    let mut w = W::default();
+    w.u32(3);
+    w.string("a")
+        .f32(1.0)
+        .string("b")
+        .f32(2.0)
+        .string("c")
+        .f32(3.0);
+    let e = read::<HashMap<String, i32>>(&tree, &w.0).unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        "invalid type: float `second`, expected SInt32"
+    );
+    // read as what it is, the same data is fine
+    let m: HashMap<String, f32> = read(&tree, &w.0).unwrap();
+    assert_eq!(m.len(), 3);
+}
+
+#[test]
 fn tuples_take_the_children_in_order() {
     #[derive(Deserialize, Debug)]
     struct T {
