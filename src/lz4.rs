@@ -71,7 +71,7 @@ pub(crate) fn decompress(input: &[u8], expected: usize) -> Result<Vec<u8>> {
         if len == 15 {
             len = read_length(input, &mut i, len)?;
         }
-        len += 4;
+        let len = match_length(len)?;
         if len > expected - o {
             return Err(err("output larger than the block table says"));
         }
@@ -120,6 +120,13 @@ fn read_length(input: &[u8], i: &mut usize, mut len: usize) -> Result<usize> {
             return Ok(len);
         }
     }
+}
+
+/// The length of a match from what the token and its length bytes state, which leaves out the four
+/// bytes every match has. Where `usize` is 32 bits, 16 MB of length bytes state a number that the
+/// four no longer fit on top of.
+fn match_length(stated: usize) -> Result<usize> {
+    stated.checked_add(4).ok_or_else(|| err("length overflow"))
 }
 
 /// Whether `uncompressed` bytes can come out of `compressed` bytes at all.
@@ -190,6 +197,46 @@ mod tests {
         let mut stream = vec![0xF0];
         stream.extend(std::iter::repeat(255u8).take(10_000));
         assert!(decompress(&stream, 1 << 20).is_err());
+    }
+
+    /// One literal, then a match at distance 1 whose length bytes state `2^32 - 4 + over`.
+    fn match_of_four_gigabytes(over: u8) -> Vec<u8> {
+        let mut stream = vec![0x1F, b'a', 0x01, 0x00];
+        // 15 from the token, 255 from each of these, and the last byte
+        stream.resize(stream.len() + 16_843_008, 255);
+        stream.push(237 + over);
+        stream
+    }
+
+    #[test]
+    fn the_four_bytes_of_a_match_cannot_overflow_its_length() {
+        assert_eq!(match_length(0).unwrap(), 4);
+        assert_eq!(match_length(usize::MAX - 4).unwrap(), usize::MAX);
+        for stated in [usize::MAX - 3, usize::MAX] {
+            assert_eq!(
+                match_length(stated).unwrap_err().to_string(),
+                "decompression failed: lz4: length overflow"
+            );
+        }
+        // The stream that reaches this where `usize` is 32 bits: its length bytes pass the checked
+        // additions of `read_length` and state a length within 4 of 2^32
+        for over in [0u8, 3] {
+            let stream = match_of_four_gigabytes(over);
+            let mut i = 4;
+            let stated = read_length(&stream, &mut i, 15).unwrap();
+            assert_eq!(i, stream.len());
+            assert_eq!(stated as u64, (1 << 32) - 4 + over as u64);
+            assert!((stated as u32).checked_add(4).is_none());
+        }
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn a_match_length_within_four_of_the_address_space_is_an_error() {
+        for over in 0..4u8 {
+            let e = decompress(&match_of_four_gigabytes(over), 1 << 20).unwrap_err();
+            assert_eq!(e.to_string(), "decompression failed: lz4: length overflow");
+        }
     }
 
     #[test]
