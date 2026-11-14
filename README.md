@@ -167,8 +167,8 @@ Each step is bounded by a constant multiple of the bytes it reads (the figures a
 The steps multiply with each other, and the crate does not cap the product. The worst cases:
 
 - **Opening a bundle.** 263 KB of stored block info can decompress to 64 MiB of block records (empty blocks are
-  valid), whose tables then take 188 MB for as long as the `Bundle` lives. Opening a bundle never holds more than
-  about that, whatever the file says.
+  valid), whose tables then take 188 MB for as long as the `Bundle` lives. The tables of a bundle never take
+  more than that, whatever the file says.
 - **A serialized file out of a bundle.** Its bytes can be 255 times what the bundle stores, and a type table
   10.4 times those: 2,660 bytes of table for a stored byte. A bundle of 1 MiB can hold a serialized file of
   255 MiB of type records, which parse to 2.6 GiB.
@@ -183,18 +183,18 @@ A caller that reads files it does not trust and needs a lower ceiling has each n
 for: `Entry::size` before `read_entry`, the length of the data before `SerializedFile::parse`, `ObjectInfo::size`
 before `read`.
 
-Tests (`tests/hostile.rs`) run, with an allocator that tracks the
-memory live at once, 30,000 mutated bundles, 60,000 mutated block tables, 60,000 mutated serialized files and
-100,000 mutated objects, every truncation of the two samples (a bundle and a serialized file), five values
-(`00`, `01`, `7f`, `80`, `ff`) at every byte of the serialized file and of the first 400 bytes of the bundle, and a
-set of decompression, type tree, count, string and visit bombs; none panics, and none has more than 8 MiB live at once
-while reading these small inputs. Two bombs that pass the size checks (one string named by every node of a tree, 763 MiB
-without the string budget; an array of arrays of empty structs, 346 MiB without the visit budget) are tests that
-fail without their budget. One test builds the inputs
-that cost the most for their size and checks the multiples in the table above, and `tests/out_of_memory.rs`
-refuses large allocations and checks that each table and buffer then fails with `Error::OutOfMemory`. The oracle
-repeats the mutations on copies of the game's bundles (`oracle GAME --fuzz N`): 120,000 mutated bundles and 119,600
-mutated serialized files, no panic, and at most 18.6 MB live at once (reading a mutated 12 MB bundle whole).
+Tests (`tests/hostile.rs`) run, with an allocator that tracks the memory live at once, 30,000 mutated bundles,
+60,000 mutated block tables, 60,000 mutated serialized files and 100,000 mutated objects, every truncation of the
+two samples (a bundle and a serialized file), five values (`00`, `01`, `7f`, `80`, `ff`) at every byte of the
+serialized file and of the first 400 bytes of the bundle, and a set of decompression, type tree, count, string and
+visit bombs; none panics, and none has more than 8 MiB live at once while reading these small inputs. Two bombs
+that pass the size checks (one string named by every node of a tree, 763 MiB without the string budget; an array of
+arrays of empty structs, 346 MiB without the visit budget) are tests that fail without their budget. One test
+builds the inputs that cost the most for their size and checks the multiples in the table above, and
+`tests/out_of_memory.rs` refuses large allocations and checks that each table and buffer then fails with
+`Error::OutOfMemory`. The oracle repeats the mutations on copies of the game's bundles (`oracle GAME --fuzz N`):
+120,000 mutated bundles and 119,600 mutated serialized files, no panic, and at most 18.6 MB live at once (reading a
+mutated 12 MB bundle whole).
 
 ## Provenance
 
