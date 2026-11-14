@@ -11,13 +11,13 @@ of one (the largest is under 700 MB; the program waits for memory budget before 
   oracle GAME --fuzz 400                         (mutated copies of bundles up to 600 KiB)
   oracle GAME --fuzz 100 --fuzz-max-kb 12288 --fuzz-bundles 200
 
-The oracle is rabex 0.2.1 plus our three fixes, git revision 56dd8a4d8d5048b6ee7664eadc89d98343c66002 of
-github.com/patodois/RustyAssetBundleEXtractor (branch `nocturne`), with the features
-compression-lz4 and compression-lzma. What is compared:
+The oracle is rabex 0.2.1 plus the three fixes of the patodois fork, git revision
+56dd8a4d8d5048b6ee7664eadc89d98343c66002 of github.com/patodois/RustyAssetBundleEXtractor
+(branch `nocturne`), with the features compression-lz4 and compression-lzma. What is compared:
 
  * the header fields rabex exposes, every block, every directory entry;
  * the whole decompressed stream of each bundle, in 8 MiB pieces, byte for byte;
- * four byte ranges of each file and the first byte past its end, mine against theirs;
+ * four byte ranges of each file and the first byte past its end, this crate's against rabex's;
  * each file whole, up to 64 MiB;
  * the main serialized file: the bytes, then the header, type table, every type tree node,
    objects, externals, script types, reference types, user information;

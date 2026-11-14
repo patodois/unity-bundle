@@ -1,6 +1,6 @@
-//! Typed views of the Unity objects this crate reads. Field names are the ones in the type trees
-//! stored in the bundles, which is how rabex matches them; fields a decoder does not use are
-//! left out and skipped while reading.
+//! Typed views of the Unity objects nocturne-unpack reads, which the oracle reads through both
+//! libraries. Field names are the ones in the type trees stored in the bundles, which is how both
+//! match them; fields nocturne-unpack does not use are left out and skipped while reading.
 
 #![allow(non_snake_case)]
 #![allow(dead_code)]

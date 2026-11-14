@@ -305,7 +305,7 @@ AssetStudio's `ClassIDType` enum (revision `d158e864...`, `AssetStudio/ClassIDTy
 does the comparison (`tools/TABLES.txt`). The one name AssetStudio does not confirm is 94: rabex has
 `ShaderNameRegistry` and AssetStudio, which is older, `ScriptMapper`; the game has an object of that class
 only in a loose file without type trees, so it cannot decide, and rabex's name (which follows the Unity
-version) is used. Three entries of an earlier draft (109, 134, 197) were dropped because the two tables
+version) is used. Three ids (109, 134, 197) are left out because the two tables
 disagree on them or only one has them. The names were first written from the author's memory of Unity's class
 ID reference, which was not fetched or read in this work, and kept only after this comparison.
 
@@ -379,8 +379,8 @@ Found by the oracle or by reading, and why. In the game's files none of them cha
    which is all zero, so reading it 1 to 3 bytes early, as rabex does, gives the same values. The two readers
    disagree about where the object's remaining bytes are but not about any value. The unit tests cover the case
    with data in the field after.
-2. **Padding after strings.** The same: both always pad. (An earlier version of this crate padded only when a
-   flag said so; every string of the game has one, and the oracle gave the same result with both rules.)
+2. **Padding after strings.** The same: both always pad. (Padding only when a flag says so gives the same
+   result on the game's files, where every string has the flag: the oracle was run with both rules.)
 3. **Padding after maps.** rabex pads when the `map` or its `pair` has the flag; this crate looks at the `map`,
    its `Array` and its `pair`, and not in the same way on every path (the known inconsistency in section 4). No
    map in the game has any of the flags, so this is untested on real data.
@@ -397,9 +397,9 @@ Found by the oracle or by reading, and why. In the game's files none of them cha
    version it cannot parse.
 10. **The reference type hash** of a format 17 node (the field does not exist) is 0 here and absent in rabex.
 
-The first oracle runs found, and these fixed: the 29 bundles of format 17 (only format 21 had been implemented),
-three class names, and a panic from a hostile entry offset (`offset + size` overflowing) found by the hostile
-input tests.
+The comparison also caught faults of this crate, which are fixed: the oracle showed that 29 bundles are format
+17, which was not read, and that three class names were wrong; the hostile input tests showed a panic on an entry
+whose `offset + size` overflows, which is an error.
 
 ## How sensitive the oracle is
 

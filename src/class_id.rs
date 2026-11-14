@@ -6,7 +6,7 @@
 //! **AssetStudio** (revision `d158e864b556b5970709c2a52e47944d53aa98a2`,
 //! `AssetStudio/ClassIDType.cs`), under the same number and name. The exception is 94, below.
 //! Entries on which the two tables disagree, or that only one of them has, are not here (109, 134
-//! and 197 were dropped for that). `tools/check_tables.py` repeats the comparison. `docs/FORMATS.md`
+//! and 197 are left out for that). `tools/check_tables.py` repeats the comparison. `docs/FORMATS.md`
 //! lists the ids the game's bundles use and checks the names of those against the root types of
 //! the bundles' type trees.
 

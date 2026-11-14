@@ -121,9 +121,9 @@ Minimum supported Rust version: 1.71 (the newest compatible `syn` needs it).
 ## Verification
 
 The crate was compared with [rabex](https://github.com/jakobhellermann/RustyAssetBundleEXtractor)
-(our fork at revision `56dd8a4`, the one nocturne-unpack used until now) as a black box on every file of
-the installed game, by the oracle in `tools/oracle` (it needs the game and the fork, so it is not part
-of the crate or of CI). `tools/oracle/REPORT.txt` is its output. On the 3,088 bundle files (2,251 base
+(the patodois fork at revision `56dd8a4`, the dependency of nocturne-unpack that this crate replaces) as a
+black box on every file of the installed game, by the oracle in `tools/oracle` (it needs the game and the fork,
+so it is not part of the crate or of CI). `tools/oracle/REPORT.txt` is its output. On the 3,088 bundle files (2,251 base
 game, 837 DLC, 12.1 GB on disk, 18.9 GB decompressed) and 9 loose serialized files:
 
 - the headers, the 146,779 blocks and the directories: identical;
@@ -188,8 +188,9 @@ memory live at once, 30,000 mutated bundles, 60,000 mutated block tables, 60,000
 100,000 mutated objects, every truncation of the two samples (a bundle and a serialized file), five values
 (`00`, `01`, `7f`, `80`, `ff`) at every byte of the serialized file and of the first 400 bytes of the bundle, and a
 set of decompression, type tree, count, string and visit bombs; none panics, and none has more than 8 MiB live at once
-while reading these small inputs. The two bombs found by review (a shared string, 763 MiB before the budget; an
-array of arrays of empty structs, 346 MiB) are tests that fail without their budget. One test builds the inputs
+while reading these small inputs. Two bombs that pass the size checks (one string named by every node of a tree, 763 MiB
+without the string budget; an array of arrays of empty structs, 346 MiB without the visit budget) are tests that
+fail without their budget. One test builds the inputs
 that cost the most for their size and checks the multiples in the table above, and `tests/out_of_memory.rs`
 refuses large allocations and checks that each table and buffer then fails with `Error::OutOfMemory`. The oracle
 repeats the mutations on copies of the game's bundles (`oracle GAME --fuzz N`): 120,000 mutated bundles and 119,600

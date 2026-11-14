@@ -1,6 +1,6 @@
 # The subset
 
-This crate exists to replace the git dependency on our fork of
+This crate exists to replace the git dependency on the patodois fork of
 [rabex](https://github.com/jakobhellermann/RustyAssetBundleEXtractor) (revision `56dd8a4`, MIT OR Apache-2.0) in
 [nocturne-unpack](https://github.com/patodois/nocturne-unpack). The inventory below is what nocturne-unpack
 used from rabex (`src/bundle.rs` and `src/install.rs`, the only files that named it), and what this crate has
@@ -34,5 +34,5 @@ command, which goes through `deserialize_any`. The oracle compares all of them, 
 every object, on every file of the game.
 
 For the Unity version the game uses: its bundles are written by Unity 2019.4.9f1 and 2019.4.10f1 (serialized
-format 21), and 29 of them by Unity 2018.4.13f1 (format 17), which the first plan (2019.4 only) did not cover; the
-oracle found them on its first run.
+format 21), and 29 of them by Unity 2018.4.13f1 (format 17), which is why format 17 is read as well as 21; the
+oracle is what found those 29.
