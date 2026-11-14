@@ -275,6 +275,126 @@ fn block_size_claims_are_checked_before_anything_is_allocated() {
     );
 }
 
+/// The loop of the README's sample, on a bundle with one texture whose pixels are in the object
+/// (an empty `m_StreamData.path`) and one whose pixels are in the `.resS` file.
+#[test]
+fn the_readme_sample_reads_inline_and_streamed_textures() {
+    use serde::Deserialize;
+    use unity_bundle::SerializedFile;
+
+    #[derive(Deserialize)]
+    #[allow(non_snake_case)]
+    struct Texture2D {
+        m_Name: String,
+        #[serde(rename = "image data")]
+        image_data: Vec<u8>,
+        m_StreamData: StreamingInfo,
+    }
+    #[derive(Deserialize)]
+    struct StreamingInfo {
+        offset: u32,
+        size: u32,
+        path: String,
+    }
+
+    let tree = n(
+        "Texture2D",
+        "Base",
+        vec![
+            string("m_Name"),
+            N {
+                meta: ALIGN,
+                ..typeless("image data")
+            },
+            n(
+                "StreamingInfo",
+                "m_StreamData",
+                vec![
+                    prim("unsigned int", "offset"),
+                    prim("unsigned int", "size"),
+                    string("path"),
+                ],
+            ),
+        ],
+    );
+    let mut inline = W::default();
+    inline.string("inline").u32(3).bytes(&[1, 2, 3]).align4();
+    inline.u32(0).u32(0).string("");
+    let mut streamed = W::default();
+    streamed.string("streamed").u32(0);
+    streamed
+        .u32(100)
+        .u32(50)
+        .string("archive:/CAB-t/CAB-t.resS");
+    let file = serialized_file(
+        21,
+        &[TypeSpec {
+            class_id: 28,
+            tree: Some(tree),
+        }],
+        &[
+            ObjectSpec {
+                path_id: 1,
+                type_index: 0,
+                data: inline.0,
+            },
+            ObjectSpec {
+                path_id: 2,
+                type_index: 0,
+                data: streamed.0,
+            },
+        ],
+        &[],
+        true,
+    );
+    let res = sample_bytes(400, 9);
+    let entries = [
+        EntrySpec {
+            path: "CAB-t",
+            flags: 4,
+            offset: 0,
+            size: file.len() as u64,
+        },
+        EntrySpec {
+            path: "CAB-t.resS",
+            flags: 0,
+            offset: file.len() as u64,
+            size: res.len() as u64,
+        },
+    ];
+    let bytes = bundle(&[([file, res.clone()].concat(), Pack::Lz4)], &entries);
+
+    let bundle = Bundle::new(&bytes[..]).unwrap();
+    let entry = bundle.main_serialized_entry().unwrap();
+    let data = bundle.read_entry(entry).unwrap();
+    let file = SerializedFile::parse(&data).unwrap();
+    let mut seen = Vec::new();
+    for info in file.objects().iter().filter(|o| o.class_id.0 == 28) {
+        let t: Texture2D = file.read(&data, info).unwrap();
+        let pixels = if t.m_StreamData.path.is_empty() {
+            t.image_data
+        } else {
+            let name = t.m_StreamData.path.rsplit('/').next().unwrap();
+            let res = bundle.entry(name).expect("no resS");
+            bundle
+                .read_entry_range(
+                    res,
+                    t.m_StreamData.offset as u64,
+                    t.m_StreamData.size as usize,
+                )
+                .unwrap()
+        };
+        seen.push((t.m_Name, pixels));
+    }
+    assert_eq!(
+        seen,
+        vec![
+            ("inline".to_string(), vec![1, 2, 3]),
+            ("streamed".to_string(), res[100..150].to_vec()),
+        ]
+    );
+}
+
 #[test]
 fn debug_output_does_not_print_the_data() {
     let (data, _) = sample();

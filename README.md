@@ -35,7 +35,10 @@ struct Texture2D {
     m_Width: i32,
     m_Height: i32,
     m_TextureFormat: i32,
-    // streamed textures keep their pixels in a .resS file of the bundle
+    // the pixels, when they are inside the object (the field's name has a space in it)
+    #[serde(rename = "image data")]
+    image_data: Vec<u8>,
+    // streamed textures keep their pixels in a .resS file of the bundle instead
     m_StreamData: StreamingInfo,
 }
 
@@ -57,10 +60,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for info in file.objects().iter().filter(|o| o.class_id.0 == 28) {
         let t: Texture2D = file.read(&data, info)?;
-        // Only the compression blocks that cover the range are decompressed
-        let name = t.m_StreamData.path.rsplit('/').next().unwrap();
-        let res = bundle.entry(name).ok_or("no resS")?;
-        let pixels = bundle.read_entry_range(res, t.m_StreamData.offset as u64, t.m_StreamData.size as usize)?;
+        let pixels = if t.m_StreamData.path.is_empty() {
+            // Not streamed: the pixels are in the object
+            t.image_data
+        } else {
+            // Only the compression blocks that cover the range are decompressed
+            let name = t.m_StreamData.path.rsplit('/').next().unwrap();
+            let res = bundle.entry(name).ok_or("no resS")?;
+            bundle.read_entry_range(res, t.m_StreamData.offset as u64, t.m_StreamData.size as usize)?
+        };
         println!("{} {}x{} format {} {} bytes", t.m_Name, t.m_Width, t.m_Height, t.m_TextureFormat, pixels.len());
     }
     Ok(())
@@ -97,8 +105,11 @@ Exactly what the one game it was written for ships: Unity **2018.4.13** and **20
 format 6, serialized file formats 17 and 21. Refused with an error that says why, because no file of the game has
 them and nothing could be checked against them:
 
-- zero padding before the block info (the header's fields are followed directly by it), and the header flag
-  `0x200` (alignment of the block info) or any flag beyond the compression and `0x40`;
+- zero padding before the block info (the header's fields are followed directly by it). This one is not
+  detected as such: an LZ4 block info read from where the header ends fails to decompress, and when zeros follow
+  the header up to a multiple of 16 the error adds that it looks like that padding. A block info stored without
+  compression has no such check (see [docs/FORMATS.md](docs/FORMATS.md), 1.1);
+- the header flag `0x200` (alignment of the block info) or any flag beyond the compression and `0x40`;
 - LZMA and LZHAM blocks, block info at the end of the file, encrypted bundles, other signatures, format 7;
 - serialized formats 18 to 20 and 22 and later, big-endian files, managed references;
 - common-string offsets above 1051 (`Type*`, the last entry the game's trees reach): both public tables go on
@@ -174,8 +185,9 @@ before `read`.
 
 Tests (`tests/hostile.rs`) run, with an allocator that tracks the
 memory live at once, 30,000 mutated bundles, 60,000 mutated block tables, 60,000 mutated serialized files and
-100,000 mutated objects, every truncation and every single-byte change of the samples, and a set of
-decompression, type tree, count, string and visit bombs; none panics, and none has more than 8 MiB live at once
+100,000 mutated objects, every truncation of the two samples (a bundle and a serialized file), five values
+(`00`, `01`, `7f`, `80`, `ff`) at every byte of the serialized file and of the first 400 bytes of the bundle, and a
+set of decompression, type tree, count, string and visit bombs; none panics, and none has more than 8 MiB live at once
 while reading these small inputs. The two bombs found by review (a shared string, 763 MiB before the budget; an
 array of arrays of empty structs, 346 MiB) are tests that fail without their budget. One test builds the inputs
 that cost the most for their size and checks the multiples in the table above, and `tests/out_of_memory.rs`

@@ -14,8 +14,11 @@ What `unity-bundle` reads, written as facts. Each fact says where it comes from:
 All numbers in the bundle header and block info are **big-endian**; in a serialized file the first 20
 bytes are big-endian and everything after them is **little-endian**.
 
-The examples are from `dvl0x01`, a 2.7 MB demon bundle written by Unity 2019.4.9f1; `cargo run --example
-inspect -- FILE --hex 112 --tree 28` prints them.
+The examples are from `dvl0x01`, a 2.7 MB demon bundle written by Unity 2019.4.9f1. `cargo run --example
+inspect -- FILE --hex 64 --tree 28` prints the first 64 bytes of the file as it is on disk (the hexdump in 1.1),
+the fields of the header, the files, the counts of the serialized file and the type tree of class 28. It does not
+dump decompressed data: the hexdumps of the block info (1.2) and of the serialized file (2.2) were made with a
+separate script.
 
 ## 1. The bundle (UnityFS, container format version 6)
 
@@ -53,7 +56,13 @@ info at the end of the file) and every bit above it are clear in all files and a
 **choice**: The rabex fork this crate was compared with accepts zero padding to a multiple of 16 before the
 block info in version 6 bundles of 2019.4 (its comment says AssetStudio does the same; AssetStudio at the
 revision named in section 3 aligns only for format version 7 and later, so that was not confirmed). No file of
-the game has any, so it is not read: such a bundle fails with a decompression error rather than being guessed at.
+the game has any, so it is not read: such a bundle fails with a decompression error rather than being guessed
+at. When the block info is LZ4 and every byte from the header's last field to the next multiple of 16 is zero, the
+error adds that this looks like a padded block info (an LZ4 stream of a block info cannot start with a zero byte).
+A block info stored without compression (flags `0x40`; the game has none) cannot be checked this way, because its
+first 16 bytes are zero in any case: read from where the header ends, a padded one can pass the zeros of its
+padding and of its hash for the hash and the two counts, and the bundle then opens with no blocks and no files
+(it does with 15 bytes of padding).
 
 ### 1.2 Block info
 
@@ -320,7 +329,8 @@ The data of an object is the values of the children of the tree's root, in order
 | `UInt64`, `unsigned long long`, `FileSize`, `SInt64`, `long long`, `double` | 8 bytes |
 | `string` | u32 length, that many bytes |
 | `TypelessData` | u32 length, that many bytes |
-| `Array`, and a node whose only child is an `Array` (`vector`, `set`, `staticvector`, ...) | u32 count, then that many values of the type of the `Array`'s second child |
+| a node whose only child is an `Array` (`vector`, `set`, `staticvector`, ...) | u32 count, then that many values of the type of the `Array`'s second child |
+| an `Array` in any other place (beside other children, or as the root) | not read (an error); every object of the game is read without meeting one |
 | `map` | an array whose elements are `pair`s: u32 count, then the `first` and the `second` value of each |
 | `Type` | nothing |
 | any other node with children | its children, in order |
@@ -330,8 +340,25 @@ The data of an object is the values of the children of the tree's root, in order
 After a node whose `meta flags` have bit 14, padding to a multiple of 4. A `string` is always padded, whatever
 its flags say (in the game the flag is on all 98,212 of them, so the oracle cannot tell the two rules apart; Unity,
 AssetStudio and rabex pad strings unconditionally). A `TypelessData` is padded when the node (or its first child)
-has the bit, a `vector`
-or `map` when it or its `Array` child has it.
+has the bit, a `vector` when it or its `Array` child has it. For a `map` see the known inconsistency below.
+
+**Known inconsistency** (padding of a `map` whose `pair` node has bit 14). The three ways a `map` is consumed do
+not agree when the flag is on the `pair`:
+
+- skipped (a field the Rust type does not name, or `IgnoredAny`): the `first` and `second` of every entry are
+  read with their own flags, the `pair`'s flag is not applied after an entry, and after the last entry there is
+  one padding if the `map`, its `Array` or its `pair` has the bit;
+- read as a map (`HashMap`, `BTreeMap`, `serde_json::Value`, anything through `deserialize_map` or
+  `deserialize_any`): the same as skipped, and so are the entries a map visitor leaves unread;
+- read as a sequence (`Vec<(K, V)>`, or a sequence of structs with `first` and `second`): each element is read
+  as the `pair` node, so there is a padding after every entry if the `pair` has the bit, and after the last entry
+  one padding if the `map` or its `Array` has the bit (the `pair`'s flag is not looked at there).
+
+With the flag on the `pair` only, a map of `UInt8` to `UInt8` with two entries takes 4 + 4 bytes skipped or read
+as a map, and 4 + 8 read as a sequence. When the `pair` does not have the bit the three agree. No file of the
+game exercises this: none of its 11,859 `map` nodes has the bit on the `map`, its `Array` or its `pair` (the table
+in 2.5), so which of the two Unity writes is not known here, and the behaviour is left as it is until a file
+shows it.
 
 **choice** (counts bounded by the data): an array's, map's, string's or typeless data's count is refused when it
 exceeds the bytes that remain in the object divided by the least size of an element (at least 1, even for
@@ -354,8 +381,9 @@ Found by the oracle or by reading, and why. In the game's files none of them cha
    with data in the field after.
 2. **Padding after strings.** The same: both always pad. (An earlier version of this crate padded only when a
    flag said so; every string of the game has one, and the oracle gave the same result with both rules.)
-3. **Padding after maps.** rabex pads when the `map` or its `pair` has the flag, this crate when the `map` or
-   its `Array` does; no map in the game has any of the flags, so this is untested on real data.
+3. **Padding after maps.** rabex pads when the `map` or its `pair` has the flag; this crate looks at the `map`,
+   its `Array` and its `pair`, and not in the same way on every path (the known inconsistency in section 4). No
+   map in the game has any of the flags, so this is untested on real data.
 4. **Reads stop at the object's end.** rabex reads from a stream over the whole file, so a value running past
    the object would read the next object's bytes.
 5. **Tuples and maps left partly unread** (a tuple asking for fewer elements than the node has children, a map
