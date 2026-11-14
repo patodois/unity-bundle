@@ -699,11 +699,19 @@ fn a_tree_cannot_ask_for_more_visits_than_the_object_is_long() {
     for k in 0..10_000u32 {
         w.u32(4 * (10_000 - k - 1));
     }
-    assert!(matches!(
-        read::<S>(&tree, &w.0),
-        Err(Error::TooLarge {
+    // The error states the budget (16 for each of the 40,004 bytes, and 1,024) and the visit
+    // that went over it, not the length of the object
+    let e = read::<S>(&tree, &w.0).unwrap_err();
+    assert_eq!(
+        e,
+        Error::TooLarge {
             what: "values to visit",
-            ..
-        })
-    ));
+            value: 40_004 * 16 + 1024 + 1,
+            limit: 40_004 * 16 + 1024,
+        }
+    );
+    assert_eq!(
+        e.to_string(),
+        "values to visit of 641089 exceeds the limit of 641088"
+    );
 }

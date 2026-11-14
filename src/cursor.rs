@@ -8,6 +8,8 @@ pub(crate) struct Cursor<'a> {
     pos: usize,
     /// How many more values may be visited (see [`Cursor::spend`])
     budget: usize,
+    /// How many values may be visited in all: the budget the cursor started with
+    limit: usize,
 }
 
 impl<'a> Cursor<'a> {
@@ -16,6 +18,7 @@ impl<'a> Cursor<'a> {
             data,
             pos: 0,
             budget: usize::MAX,
+            limit: usize::MAX,
         }
     }
 
@@ -25,6 +28,7 @@ impl<'a> Cursor<'a> {
             data,
             pos: 0,
             budget,
+            limit: budget,
         }
     }
 
@@ -36,10 +40,11 @@ impl<'a> Cursor<'a> {
                 self.budget = left;
                 Ok(())
             }
+            // The visits asked for so far, this one included, against the whole budget
             None => Err(Error::TooLarge {
                 what,
-                value: self.data.len() as u64,
-                limit: self.data.len() as u64,
+                value: ((self.limit - self.budget) as u64).saturating_add(n as u64),
+                limit: self.limit as u64,
             }),
         }
     }
