@@ -7,7 +7,7 @@
 
 use crate::common_strings;
 use crate::cursor::Cursor;
-use crate::error::{copy_of, invalid, reserve, Error, Result};
+use crate::error::{invalid, reserve, Error, Result};
 
 /// The bit of the meta flags that makes the reader skip to the next multiple of 4 after the node.
 pub const ALIGN_BYTES_FLAG: i32 = 1 << 14;
@@ -268,9 +268,9 @@ pub(crate) fn read_blob(cur: &mut Cursor<'_>, format_version: u32) -> Result<Typ
                 limit: string_budget as u64,
             });
         }
-        // The bytes were checked to be UTF-8 where they were found
-        let copy = copy_of(s.as_bytes(), "type tree strings")?;
-        String::from_utf8(copy).map_err(|_| invalid("type tree string is not valid UTF-8"))
+        // A NUL-terminated string, as in `Cursor::cstr`: its size is not a count the file states,
+        // and the budget above bounds what all the copies of a tree come to
+        Ok(s.to_string())
     };
     let mut raws: Vec<Raw> = Vec::new();
     reserve(&mut raws, node_count, "type tree nodes")?;
