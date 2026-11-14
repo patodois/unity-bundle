@@ -7,7 +7,7 @@
 //! evidence from the game files.
 
 use crate::cursor::Cursor;
-use crate::error::{invalid, Error, Result};
+use crate::error::{copy_of, grow, invalid, reserve, Error, Result};
 use crate::lz4;
 
 /// The signature of the only container format read here.
@@ -204,12 +204,18 @@ impl<T: AsRef<[u8]>> Bundle<T> {
         }
 
         let start = cur.pos();
-        let (info, data_start) = read_block_info(bytes, start, &header)?;
+        // The decompressed block info is let go before the next table is built from the blocks,
+        // so that the two are never held together
+        let (blocks, entries, data_start) = {
+            let (info, data_start) = read_block_info(bytes, start, &header)?;
+            let (blocks, entries) = parse_block_info(&info)?;
+            (blocks, entries, data_start)
+        };
         let mut header = header;
         header.block_info_offset = start as u64;
-        let (blocks, entries) = parse_block_info(&info)?;
 
-        let mut block_starts = Vec::with_capacity(blocks.len());
+        let mut block_starts = Vec::new();
+        reserve(&mut block_starts, blocks.len(), "block offsets")?;
         let (mut comp, mut uncomp) = (0u64, 0u64);
         for b in &blocks {
             block_starts.push((comp, uncomp));
@@ -315,9 +321,10 @@ impl<T: AsRef<[u8]>> Bundle<T> {
             .partition_point(|&(_, u)| u <= abs_start)
             .saturating_sub(1);
 
-        // The decompressed blocks are appended here
+        // The decompressed blocks are appended here. `len` lies inside the stream the block table
+        // describes, and each block of it was checked against its stored bytes
         let mut out: Vec<u8> = Vec::new();
-        let _ = out.try_reserve_exact(len.min(MAX_RESERVE));
+        reserve(&mut out, len.min(MAX_RESERVE), "file")?;
         let mut index = first;
         while (out.len() as u64) < len as u64 {
             let block = self
@@ -332,6 +339,7 @@ impl<T: AsRef<[u8]>> Bundle<T> {
             let part = unpacked
                 .get(from as usize..to as usize)
                 .ok_or_else(|| invalid("block table does not cover the file"))?;
+            grow(&mut out, part.len(), "file")?;
             out.extend_from_slice(part);
             index += 1;
         }
@@ -405,7 +413,7 @@ fn decode(
                     stored.len()
                 )));
             }
-            Ok(stored.to_vec())
+            copy_of(stored, "stored block")
         }
         Compression::Lz4 | Compression::Lz4Hc => {
             if uncompressed == 0 && stored.is_empty() {
@@ -417,8 +425,10 @@ fn decode(
                     stored.len()
                 )));
             }
-            lz4::decompress(stored, uncompressed as usize)
-                .map_err(|e| Error::Decompress(format!("{what}: {e}")))
+            lz4::decompress(stored, uncompressed as usize).map_err(|e| match e {
+                Error::OutOfMemory { .. } => e,
+                e => Error::Decompress(format!("{what}: {e}")),
+            })
         }
         other => Err(Error::Unsupported(format!("{what}: compression {other:?}"))),
     }
@@ -452,7 +462,8 @@ fn parse_block_info(info: &[u8]) -> Result<(Vec<Block>, Vec<Entry>)> {
     let block_count = cur.i32_be("block count")?;
     // A block record is 10 bytes; the count cannot be larger than what remains can hold
     let block_count = checked_count(block_count, 10, cur.remaining(), "block count")?;
-    let mut blocks = Vec::with_capacity(block_count);
+    let mut blocks = Vec::new();
+    reserve(&mut blocks, block_count, "block table")?;
     for _ in 0..block_count {
         blocks.push(Block {
             uncompressed_size: cur.u32_be("block")?,
@@ -464,7 +475,8 @@ fn parse_block_info(info: &[u8]) -> Result<(Vec<Block>, Vec<Entry>)> {
     let entry_count = cur.i32_be("file count")?;
     // An entry is 21 bytes at least (offset, size, flags, a NUL)
     let entry_count = checked_count(entry_count, 21, cur.remaining(), "file count")?;
-    let mut entries = Vec::with_capacity(entry_count);
+    let mut entries = Vec::new();
+    reserve(&mut entries, entry_count, "file table")?;
     for _ in 0..entry_count {
         let offset = cur.i64_be("file entry")?;
         let size = cur.i64_be("file entry")?;

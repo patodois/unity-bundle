@@ -25,7 +25,7 @@ use serde::de::{
 };
 
 use crate::cursor::Cursor;
-use crate::error::{Error, Result};
+use crate::error::{copy_of, Error, Result};
 use crate::typetree::{Kind, TypeTreeNode};
 
 /// How many values may be visited for each byte of an object, plus a constant. A real object visits
@@ -272,7 +272,7 @@ impl<'de, 't, 'b, 'r> de::Deserializer<'de> for De<'t, 'b, 'r> {
             return Err(invalid_type(self.node, "string"));
         }
         let n = self.rd.u32_le(OBJECT)? as usize;
-        let bytes = self.rd.bytes(n, OBJECT)?.to_vec();
+        let bytes = copy_of(self.rd.bytes(n, OBJECT)?, "string")?;
         // A string is always padded
         self.rd.align(4);
         match String::from_utf8(bytes) {

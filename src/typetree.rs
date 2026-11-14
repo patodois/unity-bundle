@@ -7,7 +7,7 @@
 
 use crate::common_strings;
 use crate::cursor::Cursor;
-use crate::error::{invalid, Error, Result};
+use crate::error::{copy_of, invalid, reserve, Error, Result};
 
 /// The bit of the meta flags that makes the reader skip to the next multiple of 4 after the node.
 pub const ALIGN_BYTES_FLAG: i32 = 1 << 14;
@@ -268,9 +268,12 @@ pub(crate) fn read_blob(cur: &mut Cursor<'_>, format_version: u32) -> Result<Typ
                 limit: string_budget as u64,
             });
         }
-        Ok(s.to_string())
+        // The bytes were checked to be UTF-8 where they were found
+        let copy = copy_of(s.as_bytes(), "type tree strings")?;
+        String::from_utf8(copy).map_err(|_| invalid("type tree string is not valid UTF-8"))
     };
-    let mut raws: Vec<Raw> = Vec::with_capacity(node_count);
+    let mut raws: Vec<Raw> = Vec::new();
+    reserve(&mut raws, node_count, "type tree nodes")?;
     let mut rec = Cursor::new(nodes);
     for _ in 0..node_count {
         let version = rec.u16_le("type tree node")?;
@@ -302,7 +305,14 @@ pub(crate) fn read_blob(cur: &mut Cursor<'_>, format_version: u32) -> Result<Typ
     // The levels give the nesting: a node is the child of the nearest earlier node that is one
     // level up, and the first node is the only one at the root level.
     let root_level = raws[0].level;
-    let mut parent: Vec<usize> = vec![usize::MAX; node_count];
+    let mut parent: Vec<usize> = Vec::new();
+    reserve(&mut parent, node_count, "type tree nodes")?;
+    parent.resize(node_count, usize::MAX);
+    // How many children each node has, so that each list of children is allocated once and at
+    // its size (a list that grew by pushing would hold room for four nodes to keep one)
+    let mut child_count: Vec<usize> = Vec::new();
+    reserve(&mut child_count, node_count, "type tree nodes")?;
+    child_count.resize(node_count, 0);
     let mut stack: Vec<usize> = vec![0];
     for i in 1..node_count {
         let level = raws[i].level;
@@ -320,12 +330,15 @@ pub(crate) fn read_blob(cur: &mut Cursor<'_>, format_version: u32) -> Result<Typ
             return Err(invalid("type tree levels skip a level"));
         }
         parent[i] = p;
+        child_count[p] += 1;
         stack.push(i);
     }
 
     // Build from the last node backwards: when a node's turn comes, all of its children (which
     // have larger indices) are complete, collected in reverse order
-    let mut pending: Vec<Vec<TypeTreeNode>> = (0..node_count).map(|_| Vec::new()).collect();
+    let mut pending: Vec<Vec<TypeTreeNode>> = Vec::new();
+    reserve(&mut pending, node_count, "type tree nodes")?;
+    pending.resize_with(node_count, Vec::new);
     let mut root = None;
     for i in (0..node_count).rev() {
         let mut children = std::mem::take(&mut pending[i]);
@@ -358,7 +371,11 @@ pub(crate) fn read_blob(cur: &mut Cursor<'_>, format_version: u32) -> Result<Typ
         if i == 0 {
             root = Some(node);
         } else {
-            pending[parent[i]].push(node);
+            let siblings = &mut pending[parent[i]];
+            if siblings.capacity() == 0 {
+                reserve(siblings, child_count[parent[i]], "type tree nodes")?;
+            }
+            siblings.push(node);
         }
     }
     root.ok_or_else(|| invalid("a type tree with no nodes"))

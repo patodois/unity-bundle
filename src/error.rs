@@ -36,6 +36,15 @@ pub enum Error {
     NoTypeTree,
     /// A failure while deserializing an object into a Rust type, with the type tree in hand.
     Deserialize(String),
+    /// The memory for a table or a buffer could not be had. Its size had already been checked
+    /// against the input, so this is the machine running out, not a claim the data cannot back.
+    OutOfMemory {
+        /// What the memory was for.
+        what: &'static str,
+        /// The bytes that were asked for (for the index of the objects by path id, the bytes of
+        /// its entries: a hash table asks for more than that).
+        bytes: u64,
+    },
 }
 
 /// `Result` with this crate's [`Error`].
@@ -54,6 +63,9 @@ impl fmt::Display for Error {
             Error::NoObject(id) => write!(f, "no object with path id {id}"),
             Error::NoTypeTree => f.write_str("the object's type has no type tree"),
             Error::Deserialize(m) => f.write_str(m),
+            Error::OutOfMemory { what, bytes } => {
+                write!(f, "out of memory: {bytes} bytes for {what}")
+            }
         }
     }
 }
@@ -68,4 +80,42 @@ impl serde::de::Error for Error {
 
 pub(crate) fn invalid(msg: impl Into<String>) -> Error {
     Error::Invalid(msg.into())
+}
+
+fn out_of_memory<T>(count: usize, what: &'static str) -> Error {
+    Error::OutOfMemory {
+        what,
+        bytes: (count as u64).saturating_mul(std::mem::size_of::<T>() as u64),
+    }
+}
+
+/// Makes room for exactly `additional` more elements. The caller has checked the count against
+/// the input; when the memory cannot be had this is an error, where `Vec::with_capacity` would
+/// end the process.
+pub(crate) fn reserve<T>(v: &mut Vec<T>, additional: usize, what: &'static str) -> Result<()> {
+    v.try_reserve_exact(additional)
+        .map_err(|_| out_of_memory::<T>(additional, what))
+}
+
+/// Makes room for `additional` more elements of a vector that grows as the input is read (the
+/// capacity may grow by more, as `Vec::push` would have it).
+pub(crate) fn grow<T>(v: &mut Vec<T>, additional: usize, what: &'static str) -> Result<()> {
+    v.try_reserve(additional)
+        .map_err(|_| out_of_memory::<T>(v.len().saturating_add(additional), what))
+}
+
+/// A vector of `len` zero bytes.
+pub(crate) fn zeroed(len: usize, what: &'static str) -> Result<Vec<u8>> {
+    let mut v = Vec::new();
+    reserve(&mut v, len, what)?;
+    v.resize(len, 0);
+    Ok(v)
+}
+
+/// A copy of bytes of the input.
+pub(crate) fn copy_of(bytes: &[u8], what: &'static str) -> Result<Vec<u8>> {
+    let mut v = Vec::new();
+    reserve(&mut v, bytes.len(), what)?;
+    v.extend_from_slice(bytes);
+    Ok(v)
 }

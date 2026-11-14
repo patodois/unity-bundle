@@ -6,7 +6,7 @@
 //! the last sequence having only literals. Unity's `LZ4` and `LZ4HC` bundle compression both
 //! produce this format (HC only searches harder when compressing).
 
-use crate::error::{Error, Result};
+use crate::error::{zeroed, Error, Result};
 
 /// The most a compressed byte can stand for: a run of 255-valued length bytes adds 255 bytes per
 /// byte of input, and a match costs three bytes of input at least, so the ratio stays below this.
@@ -19,13 +19,14 @@ fn err(msg: &str) -> Error {
 /// Decompresses one block to exactly `expected` bytes.
 ///
 /// The output buffer is allocated up front, so the caller checks `expected` against the input
-/// size first (see [`plausible_size`]).
+/// size first (see [`plausible_size`]); when the memory cannot be had the error is
+/// `Error::OutOfMemory`, the only one here that is not `Error::Decompress`.
 ///
 /// Short copies are made 16 bytes at a time, writing past the end of the copy into output that is
 /// not yet written and will be overwritten (the output is zero-filled first, so this is safe code);
 /// that is what makes this decoder several times faster than a byte loop.
 pub(crate) fn decompress(input: &[u8], expected: usize) -> Result<Vec<u8>> {
-    let mut out: Vec<u8> = vec![0u8; expected];
+    let mut out: Vec<u8> = zeroed(expected, "decompressed block")?;
     let mut o = 0usize;
     let mut i = 0usize;
     loop {

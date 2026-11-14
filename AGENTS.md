@@ -35,6 +35,9 @@ Normal tests include synthetic bundles and hostile inputs; the external oracle i
 - Refuse unsupported versions, compression and flags with an explanatory error.
 - Read only blocks covering requested byte ranges; do not expand a large `.resS` file for a small range.
 - Check counts against available input before allocation and retain string/visit budgets.
+- Allocate what a count or length from the input sizes through `reserve`, `grow`, `zeroed` and `copy_of` in
+  `src/error.rs`, so that running out of memory is `Error::OutOfMemory` rather than an abort.
+- A change to what a table costs in memory changes the table in the README's "Hostile input" and its test.
 - Malformed input must return errors rather than panic.
 - Preserve the README's provenance and `NOTICE`: rabex informed the design; this is not a clean-room implementation.
 - Oracle/game-derived data stays outside Git; keep synthetic tests independent of an installed game.

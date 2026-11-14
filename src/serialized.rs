@@ -13,7 +13,7 @@ use crate::bundle::checked_count;
 use crate::class_id::{ClassId, MONO_BEHAVIOUR};
 use crate::cursor::Cursor;
 use crate::de;
-use crate::error::{invalid, Error, Result};
+use crate::error::{invalid, reserve, Error, Result};
 use crate::typetree::{self, TypeTreeNode};
 
 /// The serialized file format version of Unity 2019.4.
@@ -147,7 +147,8 @@ impl SerializedFile {
         let type_count = cur.i32_le("type count")?;
         // The smallest type record: class id, stripped flag, script index and the type hash
         let type_count = checked_count(type_count, 4 + 1 + 2 + 16, cur.remaining(), "type count")?;
-        let mut types = Vec::with_capacity(type_count);
+        let mut types = Vec::new();
+        reserve(&mut types, type_count, "type table")?;
         for _ in 0..type_count {
             types.push(read_type(&mut cur, version, has_type_tree, false)?);
         }
@@ -155,8 +156,16 @@ impl SerializedFile {
         let object_count = cur.i32_le("object count")?;
         // path id 8, offset 4, size 4, type index 4
         let object_count = checked_count(object_count, 20, cur.remaining(), "object count")?;
-        let mut objects = Vec::with_capacity(object_count);
-        let mut lookup = HashMap::with_capacity(object_count);
+        let mut objects = Vec::new();
+        reserve(&mut objects, object_count, "object table")?;
+        let mut lookup = HashMap::new();
+        lookup
+            .try_reserve(object_count)
+            .map_err(|_| Error::OutOfMemory {
+                what: "object index",
+                bytes: (object_count as u64)
+                    .saturating_mul(std::mem::size_of::<(i64, usize)>() as u64),
+            })?;
         for i in 0..object_count {
             cur.align(4);
             let path_id = cur.i64_le("object")?;
@@ -184,7 +193,8 @@ impl SerializedFile {
 
         let script_count = cur.i32_le("script type count")?;
         let script_count = checked_count(script_count, 12, cur.remaining(), "script type count")?;
-        let mut script_types = Vec::with_capacity(script_count);
+        let mut script_types = Vec::new();
+        reserve(&mut script_types, script_count, "script type table")?;
         for _ in 0..script_count {
             let file_index = cur.i32_le("script type")?;
             cur.align(4);
@@ -203,7 +213,8 @@ impl SerializedFile {
             cur.remaining(),
             "external count",
         )?;
-        let mut externals = Vec::with_capacity(external_count);
+        let mut externals = Vec::new();
+        reserve(&mut externals, external_count, "external table")?;
         for _ in 0..external_count {
             externals.push(External {
                 temp_empty: cur.cstr("external")?,
@@ -223,7 +234,7 @@ impl SerializedFile {
                 cur.remaining(),
                 "reference type count",
             )?;
-            ref_types.reserve_exact(ref_count);
+            reserve(&mut ref_types, ref_count, "reference type table")?;
             for _ in 0..ref_count {
                 ref_types.push(read_type(&mut cur, version, has_type_tree, true)?);
             }
@@ -322,7 +333,7 @@ fn read_type(
         } else {
             let n = cur.i32_le("type dependency count")?;
             let n = checked_count(n, 4, cur.remaining(), "type dependency count")?;
-            type_dependencies.reserve_exact(n);
+            reserve(&mut type_dependencies, n, "type dependencies")?;
             for _ in 0..n {
                 type_dependencies.push(cur.i32_le("type dependency")?);
             }

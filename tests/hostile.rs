@@ -72,6 +72,16 @@ fn measure<T>(what: &str, f: impl FnOnce() -> T) -> T {
     r
 }
 
+/// What `f` adds to the live memory at its worst, and what it leaves live when it returns.
+fn peak_and_kept<T>(f: impl FnOnce() -> T) -> (T, usize, usize) {
+    let before = LIVE.load(Ordering::Relaxed);
+    PEAK.store(before, Ordering::Relaxed);
+    let r = f();
+    let peak = PEAK.load(Ordering::Relaxed).saturating_sub(before);
+    let kept = LIVE.load(Ordering::Relaxed).saturating_sub(before);
+    (r, peak, kept)
+}
+
 // A struct that wants some fields and ignores the rest, as nocturne-unpack's types do
 #[derive(Deserialize, Debug)]
 #[allow(dead_code, non_snake_case)]
@@ -698,4 +708,142 @@ fn deep_nesting_does_not_overflow_the_stack() {
     // dropping and cloning the deep tree is fine too
     let c = tree.clone();
     assert_eq!(c, *tree);
+}
+
+/// The start of a format `version` file with one type that has a type tree: the header and the
+/// metadata up to the type's tree blob, and what follows the blob.
+fn file_around_blob(blob: &[u8], version: u32) -> Vec<u8> {
+    let mut w = W::default();
+    w.be_u32(0).be_u32(0).be_u32(version).be_u32(0);
+    w.u8(0).bytes(&[0; 3]);
+    w.cstr("2019.4.9f1").i32(19).u8(1);
+    w.i32(1).i32(1).u8(0).i16(-1).bytes(&[9; 16]).bytes(blob);
+    if version >= 21 {
+        w.i32(0); // type dependencies
+    }
+    w.i32(0).i32(0).i32(0); // objects, script types, externals
+    if version >= 20 {
+        w.i32(0); // reference types
+    }
+    w.cstr("");
+    w.0
+}
+
+/// The README states what each table costs as a multiple of the bytes it is read from ("Hostile
+/// input"). These are the inputs that cost the most for their size, and the multiples are checked.
+#[test]
+fn the_tables_cost_the_multiples_the_readme_states() {
+    let _g = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    const SLACK: usize = 4096;
+
+    // Opening a bundle: a block info of 1 MiB of empty stored blocks (4 KB once compressed). The
+    // block table is 12 bytes and the block offsets 16 for each 10-byte record, and the block
+    // info is let go before the offsets are built: 2.8 times the block info, not 3.8
+    let mut info = W::default();
+    let blocks = ((1 << 20) - 24) / 10;
+    info.bytes(&[0; 16]).be_i32(blocks as i32);
+    info.bytes(&vec![0u8; blocks * 10]).be_i32(0);
+    let data = assemble_bundle(&info.0, &[]);
+    assert!(data.len() < 5000, "{} bytes", data.len());
+    let (b, peak, kept) = peak_and_kept(|| Bundle::new(&data[..]));
+    assert_eq!(b.unwrap().blocks().len(), blocks);
+    let bound = info.0.len() * 28 / 10 + SLACK;
+    assert!(peak <= bound, "opening: {peak} bytes at once, over {bound}");
+    assert!(kept <= bound, "opening: {kept} bytes kept, over {bound}");
+
+    // A type table without type trees: 240 bytes for each 23-byte record
+    let mut w = W::default();
+    w.be_u32(0).be_u32(0).be_u32(21).be_u32(0);
+    w.u8(0).bytes(&[0; 3]);
+    w.cstr("2019.4.9f1").i32(19).u8(0);
+    w.i32(20_000).bytes(&vec![0u8; 20_000 * 23]);
+    w.i32(0).i32(0).i32(0).i32(0).cstr("");
+    let (f, peak, _) = peak_and_kept(|| SerializedFile::parse(&w.0));
+    assert_eq!(f.unwrap().types.len(), 20_000);
+    let bound = w.0.len() * 240 / 23 + SLACK;
+    assert!(peak <= bound, "type table: {peak} bytes, over {bound}");
+
+    // An object table: 32 bytes and at most 39 of index for each 20-byte record, under 4 times
+    let mut w = W::default();
+    w.be_u32(0).be_u32(0).be_u32(21).be_u32(0);
+    w.u8(0).bytes(&[0; 3]);
+    w.cstr("2019.4.9f1").i32(19).u8(0);
+    w.i32(1).bytes(&[0u8; 23]).i32(14_400);
+    while w.0.len() % 4 != 0 {
+        w.u8(0);
+    }
+    w.bytes(&vec![0u8; 14_400 * 20]);
+    w.i32(0).i32(0).i32(0).cstr("");
+    let (f, peak, _) = peak_and_kept(|| SerializedFile::parse(&w.0));
+    assert_eq!(f.unwrap().objects().len(), 14_400);
+    let bound = w.0.len() * 4;
+    assert!(peak <= bound, "object table: {peak} bytes, over {bound}");
+
+    // Type trees. The tree that costs the most for its records is one where every node has one
+    // child (a root with 100 chains, 200 levels deep): a list of children that grew by pushing
+    // kept room for four nodes to hold one, 416 bytes for each node. Kept: 104 bytes for each
+    // node and its strings (at most 64 for each node and the tree's string buffer). While it is
+    // built: 112 bytes more for each node.
+    for version in [17u32, 21] {
+        let nodes = 1 + 100 * 200;
+        let mut blob = W::default();
+        blob.i32(nodes as i32).i32(1);
+        let mut index = 0;
+        let mut record = |blob: &mut W, level: u8| {
+            blob.u16(1).u8(level).u8(0).u32(0).u32(0);
+            blob.i32(-1).i32(index).i32(0);
+            if version >= 19 {
+                blob.u64(0);
+            }
+            index += 1;
+        };
+        record(&mut blob, 0);
+        for _ in 0..100 {
+            for level in 1..=200u8 {
+                record(&mut blob, level);
+            }
+        }
+        blob.u8(0); // the string buffer: one empty string
+        let file = file_around_blob(&blob.0, version);
+        let (f, peak, kept) = peak_and_kept(|| SerializedFile::parse(&file));
+        let f = f.unwrap();
+        let bound = nodes * 104 + SLACK;
+        assert!(
+            kept <= bound,
+            "format {version} tree: {kept} bytes kept, over {bound}"
+        );
+        let bound = nodes * 216 + SLACK;
+        assert!(
+            peak <= bound,
+            "format {version} tree: {peak} bytes at once, over {bound}"
+        );
+        drop(f);
+
+        // With strings as long as the budget lets every node have: 64 bytes more for each node
+        let nodes = 20_001;
+        let mut blob = W::default();
+        blob.i32(nodes as i32).i32(33);
+        for i in 0..nodes {
+            blob.u16(1).u8((i != 0) as u8).u8(0).u32(0).u32(0);
+            blob.i32(-1).i32(i as i32).i32(0);
+            if version >= 19 {
+                blob.u64(0);
+            }
+        }
+        blob.bytes(&[b'a'; 32]).u8(0);
+        let file = file_around_blob(&blob.0, version);
+        let (f, peak, kept) = peak_and_kept(|| SerializedFile::parse(&file));
+        let f = f.unwrap();
+        let bound = nodes * (104 + 64) + SLACK;
+        assert!(
+            kept <= bound,
+            "format {version} tree with strings: {kept} bytes kept, over {bound}"
+        );
+        let bound = nodes * (216 + 64) + SLACK;
+        assert!(
+            peak <= bound,
+            "format {version} tree with strings: {peak} bytes at once, over {bound}"
+        );
+        drop(f);
+    }
 }

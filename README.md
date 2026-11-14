@@ -14,7 +14,7 @@ unity-bundle reads **Unity 2018.4.13 and 2019.4.9 to 2019.4.10** asset bundles a
 - Reads from slices (a memory map works: anything `AsRef<[u8]>`), has one dependency (`serde`), and
   forbids `unsafe`.
 - Malformed input gives an `Error`, never a panic, and no size in the data decides an allocation
-  that the data cannot back up (see [Hostile input](#hostile-input)).
+  that the data cannot back up; [Hostile input](#hostile-input) states what the data can back.
 
 It reads what a game of that vintage ships, and nothing else: no writing, no LZMA, no encrypted
 bundles, no other format versions (they are refused with `Error::Unsupported` and a reason), no big-endian
@@ -135,22 +135,53 @@ does not do) cannot be seen through values.
 Every size and count read from the data is checked against what the data can hold before anything
 is allocated: a block's decompressed size against LZ4's best ratio for its stored size, an array's
 element count against the bytes that remain, a type tree's node count against the bytes that
-remain. Reads of an object stop at the object's end. Two budgets stop sizes that pass those checks from
-multiplying: the strings copied for a type tree (64 bytes per node plus the tree's string buffer, because many
-nodes can name one string) and the values visited while reading an object (16 per byte plus 1,024, because
-elements that take no bytes cost nothing to the data).
+remain. What a checked size asks for is then allocated in a way that can fail: when the memory cannot be had
+the result is `Error::OutOfMemory`, not an abort. Reads of an object stop at the object's end. Two budgets stop
+sizes that pass those checks from multiplying: the strings copied for a type tree (64 bytes per node plus the
+tree's string buffer, because many nodes can name one string) and the values visited while reading an object
+(16 per byte plus 1,024, because elements that take no bytes cost nothing to the data).
 
-What is held in memory is proportional to the input: a decompressed block is at most 255 times its stored bytes
-and the parsed tables cost a constant multiple of the bytes they were read from (a type record of 23 bytes
-becomes a 240-byte struct, about 10 times; a type tree node of 32 bytes becomes about 104 bytes plus at
-most 64 bytes of strings, about 5 times). Tests (`tests/hostile.rs`) run, with an allocator that tracks the
+Each step is bounded by a constant multiple of the bytes it reads (the figures are for 64-bit targets):
+
+| step | the most it holds |
+|---|---|
+| one LZ4 block, or the block info | 255 times its stored bytes, and 64 MiB |
+| opening a bundle | 2.8 times the decompressed block info: 12 bytes of block table and 16 of block offsets for a 10-byte record (the block info is freed before the offsets are built); 48 bytes and the name for a file entry of 21 bytes or more |
+| the type table | 240 bytes for a type record of 23 bytes, 10.4 times |
+| a type tree | 104 bytes for a node record of 24 bytes (format 17) or 32 (format 21), plus its strings, which are at most 64 bytes per node and the tree's string buffer: up to 7 times, and 112 bytes per node more while it is built (up to 12 times) |
+| the object table | 32 bytes and at most 39 of index for a record of 20 bytes, under 4 times |
+| script types, externals | 16 bytes for 12, and 72 bytes and the path for 22 or more: under 4 times |
+| the values of an object | 16 values per byte of the object, plus 1,024; what a value costs is up to the Rust type that receives it |
+
+The steps multiply with each other, and the crate does not cap the product. The worst cases:
+
+- **Opening a bundle.** 263 KB of stored block info can decompress to 64 MiB of block records (empty blocks are
+  valid), whose tables then take 188 MB for as long as the `Bundle` lives. Opening a bundle never holds more than
+  about that, whatever the file says.
+- **A serialized file out of a bundle.** Its bytes can be 255 times what the bundle stores, and a type table
+  10.4 times those: 2,660 bytes of table for a stored byte. A bundle of 1 MiB can hold a serialized file of
+  255 MiB of type records, which parse to 2.6 GiB.
+- **A generic value.** The visit budget counts values, not their size. A struct that names its fields holds only
+  those, but a type that keeps everything it is shown holds every value visited. Read as `serde_json::Value`, an
+  object whose tree is an array of arrays of elements that take no bytes came to 0.7 KB per byte of the object
+  when the elements are empty structs and to 5.4 KB when they are structs with one empty field (measured), and it
+  is more when the field names are long, since such a value copies the name of each field it visits. Through LZ4
+  that is again times 255 per stored byte.
+
+A caller that reads files it does not trust and needs a lower ceiling has each number before the memory is asked
+for: `Entry::size` before `read_entry`, the length of the data before `SerializedFile::parse`, `ObjectInfo::size`
+before `read`.
+
+Tests (`tests/hostile.rs`) run, with an allocator that tracks the
 memory live at once, 30,000 mutated bundles, 60,000 mutated block tables, 60,000 mutated serialized files and
 100,000 mutated objects, every truncation and every single-byte change of the samples, and a set of
 decompression, type tree, count, string and visit bombs; none panics, and none has more than 8 MiB live at once
 while reading these small inputs. The two bombs found by review (a shared string, 763 MiB before the budget; an
-array of arrays of empty structs, 346 MiB) are tests that fail without their budget. The oracle repeats the
-mutations on copies of the game's bundles (`oracle GAME --fuzz N`): 120,000 mutated bundles and 119,600 mutated
-serialized files, no panic, and at most 18.6 MB live at once (reading a mutated 12 MB bundle whole).
+array of arrays of empty structs, 346 MiB) are tests that fail without their budget. One test builds the inputs
+that cost the most for their size and checks the multiples in the table above, and `tests/out_of_memory.rs`
+refuses large allocations and checks that each table and buffer then fails with `Error::OutOfMemory`. The oracle
+repeats the mutations on copies of the game's bundles (`oracle GAME --fuzz N`): 120,000 mutated bundles and 119,600
+mutated serialized files, no panic, and at most 18.6 MB live at once (reading a mutated 12 MB bundle whole).
 
 ## Provenance
 
