@@ -180,6 +180,52 @@ fn refuses_other_formats_with_a_reason() {
 }
 
 #[test]
+fn padding_before_the_block_info_is_named_in_the_error() {
+    // What some Unity 2019.4 bundles are said to have and this crate does not read: the header's
+    // 49 bytes, zeros up to offset 64, and only then the block info
+    let content = sample_bytes(1000, 2);
+    let entries = [EntrySpec {
+        path: "f",
+        flags: 0,
+        offset: 0,
+        size: 1000,
+    }];
+    let (info, body) = bundle_parts(&[(content, Pack::Lz4)], &entries);
+    let packed = lz4_compress(&info);
+    let with_padding = |padding: usize| {
+        let mut w = W::default();
+        w.cstr("UnityFS").be_u32(6).cstr("5.x.x").cstr("2019.4.9f1");
+        w.be_i64(0)
+            .be_u32(packed.len() as u32)
+            .be_u32(info.len() as u32)
+            .be_u32(0x43);
+        assert_eq!(w.0.len(), 49);
+        w.bytes(&vec![0u8; padding]).bytes(&packed).bytes(&body);
+        w.0
+    };
+    assert!(Bundle::new(&with_padding(0)[..]).is_ok());
+
+    let err = Bundle::new(&with_padding(15)[..]).unwrap_err();
+    assert!(matches!(err, Error::Decompress(_)), "{err:?}");
+    assert_eq!(
+        err.to_string(),
+        "decompression failed: block info: lz4: match offset outside the output \
+         (the 15 bytes after the header are zero, up to a multiple of 16: this looks like a \
+         bundle whose block info is padded, which this crate does not read)"
+    );
+
+    // A block info that fails for another reason gets no such hint: its first byte damaged, and
+    // zeros after the header that do not reach a multiple of 16
+    let mut damaged = with_padding(0);
+    damaged[49] = 0;
+    let err = Bundle::new(&damaged[..]).unwrap_err();
+    assert!(matches!(err, Error::Decompress(_)), "{err:?}");
+    assert!(!err.to_string().contains("padded"), "{err}");
+    let err = Bundle::new(&with_padding(7)[..]).unwrap_err();
+    assert!(!err.to_string().contains("padded"), "{err}");
+}
+
+#[test]
 fn every_prefix_of_a_bundle_is_an_error_not_a_panic() {
     let (data, _) = sample();
     for n in 0..data.len().min(400) {

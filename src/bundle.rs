@@ -207,7 +207,8 @@ impl<T: AsRef<[u8]>> Bundle<T> {
         // The decompressed block info is let go before the next table is built from the blocks,
         // so that the two are never held together
         let (blocks, entries, data_start) = {
-            let (info, data_start) = read_block_info(bytes, start, &header)?;
+            let (info, data_start) = read_block_info(bytes, start, &header)
+                .map_err(|e| with_padding_hint(e, bytes, start, &header))?;
             let (blocks, entries) = parse_block_info(&info)?;
             (blocks, entries, data_start)
         };
@@ -426,8 +427,8 @@ fn decode(
                 )));
             }
             lz4::decompress(stored, uncompressed as usize).map_err(|e| match e {
-                Error::OutOfMemory { .. } => e,
-                e => Error::Decompress(format!("{what}: {e}")),
+                Error::Decompress(m) => Error::Decompress(format!("{what}: {m}")),
+                e => e,
             })
         }
         other => Err(Error::Unsupported(format!("{what}: compression {other:?}"))),
@@ -439,7 +440,8 @@ fn decode(
 ///
 /// The rabex fork this crate was compared with accepts zero padding to a multiple of 16 before the
 /// block info in 2019.4 bundles. None of the 3,088 bundles of the game has any (see
-/// `docs/FORMATS.md`), so that is not read here: such a bundle fails with a decompression error.
+/// `docs/FORMATS.md`), so that is not read here: such a bundle fails with a decompression error,
+/// to which [`with_padding_hint`] adds what it looks like.
 fn read_block_info(bytes: &[u8], start: usize, header: &Header) -> Result<(Vec<u8>, usize)> {
     let comp = header.block_info_compressed_size as usize;
     let stored = start
@@ -453,6 +455,32 @@ fn read_block_info(bytes: &[u8], start: usize, header: &Header) -> Result<(Vec<u
         None,
     )?;
     Ok((info, start + comp))
+}
+
+/// Says so when a block info that did not decompress looks like one that is padded: compressed
+/// with LZ4, and every byte from the end of the header's fields to the next multiple of 16 zero.
+/// An LZ4 stream of a block info cannot start with a zero byte (a token of zero asks for a match
+/// before there is any output), so those zeros are not the start of one.
+fn with_padding_hint(e: Error, bytes: &[u8], start: usize, header: &Header) -> Error {
+    let Error::Decompress(message) = e else {
+        return e;
+    };
+    let padding = (16 - start % 16) % 16;
+    let lz4 = matches!(
+        header.block_info_compression(),
+        Compression::Lz4 | Compression::Lz4Hc
+    );
+    let zeros = bytes
+        .get(start..start + padding)
+        .is_some_and(|p| p.iter().all(|&b| b == 0));
+    if lz4 && padding > 0 && zeros {
+        Error::Decompress(format!(
+            "{message} (the {padding} bytes after the header are zero, up to a multiple of 16: \
+             this looks like a bundle whose block info is padded, which this crate does not read)"
+        ))
+    } else {
+        Error::Decompress(message)
+    }
 }
 
 fn parse_block_info(info: &[u8]) -> Result<(Vec<Block>, Vec<Entry>)> {
